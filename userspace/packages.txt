@@ -1,0 +1,107 @@
+# Packages of the PICO 4 SteamOS-compatible userspace (roadmap step 4), with
+# their dependencies resolved by pacman. One name per line; '#' starts a comment.
+# "deckard-arch-hotfixes-release-0.3/<name>" takes the Steam Frame's own build.
+
+# Arch/Holo base system, with the Frame's systemd (258+ needs Linux >= 5.4)
+base
+deckard-arch-hotfixes-release-0.3/systemd
+deckard-arch-hotfixes-release-0.3/systemd-libs
+deckard-arch-hotfixes-release-0.3/systemd-sysvcompat
+dbus-broker-units
+polkit
+sudo
+openssh
+iproute2
+e2fsprogs
+less
+zstd
+
+# SteamOS integration as on the Steam Frame
+deckard-arch-hotfixes-release-0.3/steamos-customizations-deckard
+deckard-arch-hotfixes-release-0.3/steamos-manager
+networkmanager
+# NetworkManager's wpa_supplicant, patched so that WPA3 (SAE) connects on the 4.19 kernel
+pico4/pico4-wpa-supplicant
+# Battery level and charging state from the stock kernel's power supply (D-Bus activated)
+upower
+
+# Session, audio and graphics stack of the Frame. The Frame's gamescope links
+# libXxf86vm without declaring it. Mesa (OpenGL for Xwayland) comes from the
+# preview: Valve's deckard Mesa needs libdisplay-info.so.1, which only the
+# Frame's private base has, and its Turnip lacks KGSL anyway.
+deckard-arch-hotfixes-release-0.3/gamescope
+libxxf86vm
+mesa
+xorg-xwayland
+pipewire
+pipewire-pulse
+wireplumber
+# Real-time priority for PipeWire's audio threads, as on SteamOS: with a session bus PipeWire
+# asks RTKit and stays at normal priority without it, and sounds break up under the session's load
+rtkit
+# amixer, aplay, arecord, alsaucm: the sound card's checks (docs/userspace.md#audio)
+alsa-utils
+vulkan-icd-loader
+vulkan-tools
+# GL test clients (glxgears, glxinfo, eglinfo): X11 presentation in gamescope (docs/session.md)
+mesa-utils
+
+# Project-built: Turnip with the KGSL backend and the step-3 graphics tests
+pico4/pico4-turnip-kgsl
+pico4/pico4-graphics-tests
+
+# Project-built: host daemons for the sensor DSP (head IMU, docs/xr.md); python runs
+# the pico4-imu client
+pico4/pico4-sensors
+python
+
+# Project-built: Monado OpenXR runtime with the PICO 4 head-tracking driver, and
+# Basalt as its SLAM backend for 6DoF (docs/xr.md)
+pico4/pico4-monado
+pico4/pico4-basalt
+# Arch's OpenCV links its highgui module against Qt without depending on it;
+# Monado and Basalt load that module
+qt6-base
+
+# Valve's VR session as on the Steam Frame (docs/session.md): SteamVR for
+# linuxarm64 and the session scripts and user units around gamescope's OpenVR
+# backend. pacman.conf leaves out SteamVR's Frame-only drivers and tools. The
+# "steamvr" script needs jq.
+deckard-arch-hotfixes-release-0.3/deckard-steamvr-session
+deckard-arch-hotfixes-release-0.3/deckard-steamvr-rel
+# Project-built: the panels as SteamVR's direct-mode display (Vulkan layer)
+pico4/pico4-vrdisplay
+# Project-built: System V semaphores, which SteamVR needs and the kernel lacks
+pico4/pico4-sysvsem
+jq
+# SteamVR's dashboard (vrwebhelper, CEF) links ATK and AT-SPI; gamescope-onready
+# runs xhost and xrdb before it reports the session ready
+at-spi2-core
+xorg-xhost
+xorg-xrdb
+# The Steam client: a 671 MiB bundle; steam.service's steam-health-check unpacks
+# it into the home directory on its first start (2.5 GB), as on the Frame. Its
+# libraries need what the package does not declare: GTK 2 (steamui.so; without
+# it the updated client exits at once; built from source, no aarch64 package
+# carries it) and IBus (steamwebhelper).
+deckard-steam-rel
+pico4/pico4-gtk2
+# Project-built: MangoHud's mangoapp, the client's performance overlay that gamescope
+# starts; the Frame's build needs libraries of the Frame's private base
+pico4/pico4-mangohud
+deckard-arch-hotfixes-release-0.3/libibus
+# The session's input method: Valve's ibus-gamescope unit runs ibus-daemon, which
+# takes the text of Steam's on-screen keyboard to the apps.
+deckard-arch-hotfixes-release-0.3/ibus
+# The client polls processes with lsof.
+lsof
+# "!name" satisfies dependencies on name without installing it:
+# pico4-session.service replaces sddm.
+!sddm
+
+# Diagnostics (mtools: the stage-2 USB log drive)
+libdrm
+mtools
+evtest
+strace
+usbutils
