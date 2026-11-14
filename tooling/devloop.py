@@ -60,6 +60,7 @@ from overpressure import (
 )
 from overpressure.fastboot import NOT_IN_FASTBOOT
 from overpressure.fastboot import flash as flash_image
+from overpressure.headset import manifest
 
 from . import device, localconfig, stockfiles
 from . import hardware_test as hw
@@ -113,13 +114,21 @@ BUILD_TREE = (
     "devices/phoenix/userspace",
     "devices/phoenix/initramfs/usr/libexec/pico4",
     "devices/phoenix/prebuilt",
+    "devices/phoenix/headset.json",
 )
 
 
+#: This headset's folder: a development checkout (its own Git) or a downloaded release (headset.json).
+HERE = Path(__file__).resolve().parents[1]
+
+
 def _git(*words: str) -> str:
+    """Return git's answer about this headset's checkout, "" for a release (no Git of its own) or a failure."""
+    if not (HERE / ".git").exists():
+        return ""  # a release: git -C would answer for the overpressure checkout around it
     try:
-        return subprocess.run(  # noqa: S603  # git on this repository, fixed words
-            ["git", "-C", str(ROOT), *words],  # noqa: S607  # git from PATH, where the owner has one
+        return subprocess.run(  # noqa: S603  # git on this headset's checkout, fixed words
+            ["git", "-C", str(HERE), *words],  # noqa: S607  # git from PATH, where the owner has one
             capture_output=True,
             text=True,
             check=True,
@@ -144,15 +153,21 @@ def unreachable(urls: tuple[str, ...] = DOWNLOAD_HOSTS) -> list[str]:
     return [url.split("//", 1)[1] for url in urls if not answers(url)]
 
 
+def _released(name: str) -> str:
+    """Return a field git archive filled into a release's headset.json (commit, date), "" in a checkout."""
+    value = str(manifest(HERE).get(name, ""))
+    return "" if value.startswith("$Format") else value
+
+
 def source_commit() -> str:
-    """Return this tree's commit as the build records it (git describe), "unknown" without Git."""
-    return _git("describe", "--always", "--dirty", "--abbrev=12") or "unknown"
+    """Return this headset's commit as the build records it (git describe, a release's), "unknown" without."""
+    return _git("describe", "--always", "--dirty", "--abbrev=12") or _released("commit")[:12] or "unknown"
 
 
 def source_date_epoch() -> int:
-    """Return the build's time: this commit's (as the container build takes it), else pyproject.toml's."""
-    found = _git("log", "-1", "--format=%ct")
-    return int(found) if found.isdigit() else int((ROOT / "pyproject.toml").stat().st_mtime)
+    """Return the build's time: this commit's (as the container build takes it), else headset.json's."""
+    found = _git("log", "-1", "--format=%ct") or _released("date")
+    return int(found) if found.isdigit() else int((HERE / "headset.json").stat().st_mtime)
 
 
 #: The share of an install's progress its partition writes stand for; the short steps after them have the rest.

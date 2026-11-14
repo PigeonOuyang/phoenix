@@ -13,7 +13,7 @@ read-only log drive. Every disk and partition is read-only, except what `pico4-i
 | Build | `python -m overpressure build --firmware 5.13.7-global-seko` → `out/pico4-stage1-<firmware>.img` |
 | Into `recovery` | `python -m overpressure dev image`, `dev flash` ([hardware-testing.md](hardware-testing.md)) |
 | Connect | `ssh root@172.16.42.1`, <http://172.16.42.1/>, or the `PICO4LOGS` drive |
-| Code | [tooling/image.py](../tooling/image.py) on [overpressure/stage1.py](../../../overpressure/stage1.py); [initramfs/](../initramfs/) |
+| Code | [tooling/image.py](../tooling/image.py) on [overpressure/stage1.py](https://github.com/overpressure/overpressure/blob/main/overpressure/stage1.py); [initramfs/](../initramfs/) |
 
 The installed system (stage 2, [userspace.md](userspace.md)) starts without it: its boot image has no ramdisk
 ([install.md](install.md#how-it-starts)).
@@ -112,19 +112,19 @@ build does not download it: the stock boot image is the headset's own `boot` par
 
 The first build downloads about 12 MB of Alpine packages into `cache/`, and nothing of PICO's. The build:
 
-1. Takes the stock `boot.img` from the backup ([overpressure/backup.py](../../../overpressure/backup.py),
+1. Takes the stock `boot.img` from the backup ([overpressure/backup.py](https://github.com/overpressure/overpressure/blob/main/overpressure/backup.py),
    `verified_partition`: the image's size and SHA-256 are the manifest's), or `--stock-boot`'s
-   ([overpressure/ota.py](../../../overpressure/ota.py), by HTTP range requests checked against the zip's CRC-32;
-   A/B OTAs with `payload.bin` work too, [overpressure/payload.py](../../../overpressure/payload.py)).
-2. Parses it ([overpressure/bootimg.py](../../../overpressure/bootimg.py), header v0–4) and analyses the
-   kernel ([overpressure/kernelinfo.py](../../../overpressure/kernelinfo.py)). It stops if the kernel lacks
+   ([overpressure/ota.py](https://github.com/overpressure/overpressure/blob/main/overpressure/ota.py), by HTTP range requests checked against the zip's CRC-32;
+   A/B OTAs with `payload.bin` work too, [overpressure/payload.py](https://github.com/overpressure/overpressure/blob/main/overpressure/payload.py)).
+2. Parses it ([overpressure/bootimg.py](https://github.com/overpressure/overpressure/blob/main/overpressure/bootimg.py), header v0–4) and analyses the
+   kernel ([overpressure/kernelinfo.py](https://github.com/overpressure/overpressure/blob/main/overpressure/kernelinfo.py)). It stops if the kernel lacks
    `BLK_DEV_INITRD`, `RD_GZIP`, `USB_CONFIGFS`, `CONFIGFS_FS` or `UNIX98_PTYS`, or has none of the NCM,
    RNDIS and ECM gadget functions.
-3. Assembles the root file system in memory ([overpressure/cpio.py](../../../overpressure/cpio.py)), so nodes,
+3. Assembles the root file system in memory ([overpressure/cpio.py](https://github.com/overpressure/overpressure/blob/main/overpressure/cpio.py)), so nodes,
    modes and ownership are right on Windows too: the minirootfs (checked against its SHA-256); the packages
    with dependencies, each verified through Alpine's checksum chain
-   ([overpressure/alpine.py](../../../overpressure/alpine.py)) and each APKINDEX's RSA signature against
-   Alpine's aarch64 keys pinned in [overpressure/apksign.py](../../../overpressure/apksign.py) (a bad or
+   ([overpressure/alpine.py](https://github.com/overpressure/overpressure/blob/main/overpressure/alpine.py)) and each APKINDEX's RSA signature against
+   Alpine's aarch64 keys pinned in [overpressure/apksign.py](https://github.com/overpressure/overpressure/blob/main/overpressure/apksign.py) (a bad or
    unknown signature stops the build and drops the index from the cache); modules from the stock ramdisk
    (current firmware has none); the overlay; `pico4-reboot`; static device nodes (`console`, `null`, `zero`,
    `kmsg`, `tty`, `ptmx`, `random`, `urandom`: the kernel opens `/dev/console` before `/init`); a root
@@ -166,7 +166,7 @@ aarch64-linux-gnu-gcc -Os -static -nostdlib -ffreestanding -fno-stack-protector 
 
 The build container's cross compiler lacks arm64 kernel headers: in a `container run`, first
 `apt-get install linux-libc-dev-arm64-cross`. The splash picture is tested on the host
-(`test_pico4_splash.c` in [scripts/c-tests.sh](../../../scripts/c-tests.sh)), which writes it as a PPM when
+(`test_pico4_splash.c` in [scripts/c-tests.sh](../scripts/c-tests.sh)), which writes it as a PPM when
 given a name.
 
 ## Booting
@@ -175,7 +175,7 @@ Stage 1 boots from a partition: `python -m overpressure dev flash` writes the de
 maintenance stage 1); `hwtest flash-run` and `cycle` write a test image to `boot` and restore it
 ([hardware-testing.md](hardware-testing.md)). The engineering ABL rejects `fastboot boot` (unknown command
 after the transfer, even with persistent normal and critical unlock), so overpressure's RAM boot
-([tool.md](../../../docs/tool.md#ram-boot)) has no target on the PICO 4. `pico4-reboot bootloader` returns to
+([tool.md](https://github.com/overpressure/overpressure/blob/main/docs/tool.md#ram-boot)) has no target on the PICO 4. `pico4-reboot bootloader` returns to
 fastboot; `python -m overpressure dev restore` returns to PICO OS.
 
 ### Writing boot by hand

@@ -76,7 +76,7 @@ def _relative(path: Path, root: Path) -> str:
     return str(path)
 
 
-#: The firmware every default names; device.mk and .env.example repeat it (tests/test_stock.py).
+#: The firmware every default names; device.mk and env.example repeat it (tests/test_stock.py).
 FIRMWARE = "5.13.7-global-seko"
 FIRMWARES = (FIRMWARE,)
 _firmware = Param(

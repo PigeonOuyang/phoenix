@@ -1,6 +1,6 @@
 # Release checklist
 
-Every release image goes through all of this ([docs/releasing.md](../../../docs/releasing.md) says when), on the
+Every release image goes through all of this ([releasing.md](releasing.md) says when), on the
 release's own image, from a fresh boot. `python -m overpressure dev release-check` runs the automated part and
 writes `out/release/<time>/result.json`; `--attended` adds what needs someone near. The worn part is a person's.
 Attach the results to the release.
@@ -56,5 +56,5 @@ Attach the results to the release.
 | Clean install | from PICO OS on a wiped data partition, following only the README (the installer's *Install*) |
 | Upgrade | the installer's *Upgrade* (`python -m overpressure upgrade`) of the previous release's installed system: its data, Wi-Fi, room and Steam sign-in kept, the package database the new image's |
 | The way back | the installer's *Restore to stock* (`python -m overpressure restore`; by hand `dev restore`, `cycle --restore-only`): PICO OS boots, tracks and plays |
-| `scripts/check-private.py --history` | no finding |
+| `scripts/check-private.py --repo devices/phoenix --history` (and without `--repo` in overpressure) | no finding |
 | Package lock | a clean build passes the lock; the image reports the release's version and a commit without `-dirty` |

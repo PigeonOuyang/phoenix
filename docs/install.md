@@ -45,7 +45,7 @@ Every other partition stays read-only; the calibration and firmware the system n
 - **Updates.** A new system image replaces `super` whole; the data stays. On an image it has not booted
   before, preinit takes `/var/lib/pacman` (which describes the image) from the new image.
 - **Boot indication.** [`pico4-splash`](../src/splash/pico4-splash.c) draws the logo's headset
-  ([docs/logo](../../../docs/logo/README.md)), the name and a moving bar in the middle of both lenses while the
+  ([docs/logo](https://github.com/overpressure/overpressure/blob/main/docs/logo/README.md)), the name and a moving bar in the middle of both lenses while the
   system starts ([pico4-splash-draw.h](../src/splash/pico4-splash-draw.h)). preinit starts it once the data
   and PICO OS's files are there; `pico4-splash.service` takes the display over and the bar carries on (its place follows the
   clock). It sets the panels' 90 Hz mode on msm's primary plane and gives up DRM master, so the next compositor
@@ -69,7 +69,7 @@ its DSPs, video codec and wireless chip. The image holds none of them, only link
 | `persist`, mounted read-only | the headset's own calibration and addresses | nothing: read at boot |
 
 - **The copy.** [`tooling/stockfiles.py`](../tooling/stockfiles.py) reads `super`'s logical partitions
-  out of the backup ([overpressure/lp.py](../../../overpressure/lp.py)) with the project's ext4 reader, takes
+  out of the backup ([overpressure/lp.py](https://github.com/overpressure/overpressure/blob/main/overpressure/lp.py)) with the project's ext4 reader, takes
   the same files as from PICO's OTA of that firmware ([`assets.py`](../tooling/assets.py)) and writes them,
   laid out as the system expects them, into a gzip-compressed tar with a manifest and `SHA256SUMS`; the same
   backup gives the same archive. `dev install` sends it to the maintenance stage 1 after the keys
@@ -211,12 +211,12 @@ checked against the backup's manifest):
     footer in the partition's last 64 bytes. The ABL checks that chain on every boot; an image that overwrites
     the vbmeta leaves every boot in fastboot, while a hash mismatch alone is tolerated on the unlocked headset.
     The image therefore carries stock's vbmeta unchanged and a footer pointing to it
-    ([`overpressure/avb.py`](../../../overpressure/avb.py)).
+    ([`overpressure/avb.py`](https://github.com/overpressure/overpressure/blob/main/overpressure/avb.py)).
 
 The installed system's boot image comes from `dev boot-image` ([below](#install-and-update)).
 
 Large raw downloads crash the ABL's fastboot (the 100 MiB stock recovery left it in crash-dump mode), so
-whole-partition images go sparse ([`overpressure/sparse.py`](../../../overpressure/sparse.py)), zero runs as fill
+whole-partition images go sparse ([`overpressure/sparse.py`](https://github.com/overpressure/overpressure/blob/main/overpressure/sparse.py)), zero runs as fill
 chunks.
 
 ## Built on the headset
@@ -265,14 +265,14 @@ Once the PICO 4 is chosen, the window asks what to do: *Install*, *Upgrade* or *
 ([below](#the-upgrade-and-the-way-back)); its start page also exports and imports the backup
 ([below](#the-backup-as-one-file)). On the command line these are `python -m overpressure install`, `upgrade`
 and `restore` ([`tooling/install.py`](../tooling/install.py): `Plan.stages`, `upgrade_stages`,
-`restore_stages`; the engine: [docs/tool.md](../../../docs/tool.md#the-installer); the owner's steps:
+`restore_stages`; the engine: [docs/tool.md](https://github.com/overpressure/overpressure/blob/main/docs/tool.md#the-installer); the owner's steps:
 [README](../README.md#install)).
 
 Every command that touches the headset first asks the disclaimer (y/n); `--accept-disclaimer` or
 `OVERPRESSURE_ACCEPT_DISCLAIMER=1` accepts it for unattended runs
-([overpressure/disclaimer.py](../../../overpressure/disclaimer.py)). A computer on its battery below 30 % is
+([overpressure/disclaimer.py](https://github.com/overpressure/overpressure/blob/main/overpressure/disclaimer.py)). A computer on its battery below 30 % is
 refused, and the installer checks again before each task that writes
-([overpressure/power.py](../../../overpressure/power.py)).
+([overpressure/power.py](https://github.com/overpressure/overpressure/blob/main/overpressure/power.py)).
 
 A started workflow goes on where it stopped; after an earlier run the window opens at *Continue where you left
 off* and *Start over from…* a stage (starting over at Prepare your headset or Install repeats the backup and the
@@ -315,7 +315,7 @@ the others' recorded progress (the install starts afresh after a restore).
 ### The backup as one file
 
 `python -m overpressure backup export FILE` (*Export backup…*) writes one checked file
-([docs/tool.md](../../../docs/tool.md#the-installer)): the EDL backup `PICO4_BACKUP` names, the identity, this
+([docs/tool.md](https://github.com/overpressure/overpressure/blob/main/docs/tool.md#the-installer)): the EDL backup `PICO4_BACKUP` names, the identity, this
 computer's SSH key for the maintenance stage 1 (`out/dev/id_ed25519`, the only key the dev image in `recovery`
 trusts), `out/dev/installed.json` once the system is installed, and the headset's serials. The partition images
 are sparse members, without their zero runs: about 6.9 GiB for the PICO 4's backup. `backup import FILE`

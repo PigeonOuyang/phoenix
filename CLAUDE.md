@@ -1,15 +1,19 @@
 # CLAUDE.md: PICO 4 (phoenix)
 
-Guidance for working on the PICO 4 in overpressure (the repository's [CLAUDE.md](../../CLAUDE.md)
-has the general rules): Linux and a SteamOS-compatible userspace on the original PICO 4 (2022,
+Guidance for working on the PICO 4's headset module for overpressure, this repository, with its own releases
+(overpressure's [CLAUDE.md](https://github.com/overpressure/overpressure/blob/main/CLAUDE.md) has the general
+rules): Linux and a SteamOS-compatible userspace on the original PICO 4 (2022,
 codename *phoenix*, Snapdragon XR2), on **Valve's kernel** (the Steam Frame's 7.2 with the project's
 changes in [overpressure/linux](https://github.com/overpressure/linux), pinned by `kernel/release.json`,
 [docs/kernel.md](docs/kernel.md)) with Valve's Mesa.
 The maintenance stage 1 in `recovery` runs on Valve's kernel too. The stock Android kernel (4.19.81-perf+,
 PICO OS 5.13.7/5.13.8) runs neither: it stays in the acceptance runner's boot image and on the way back to
 PICO OS. The headset builds its own system (docs/install.md#built-on-the-headset); the installer needs no
-build on the PC. Paths are relative to this folder (`devices/phoenix/`); commands run
-from the repository root.
+build on the PC. This repository is dropped into `devices/phoenix/` of an overpressure checkout (for
+development a clone: `git clone https://github.com/overpressure/phoenix devices/phoenix`). Paths are relative
+to this repository; commands run from the overpressure checkout's root. Commits go to this repository by pull
+request; a change overpressure's generic code needs lands there first (keeping the headset interface, `api` in
+`headset.json`, compatible), then here. CI runs this repository against overpressure's `main`.
 
 ## Where things stand
 
@@ -34,12 +38,14 @@ Build system, the build container, tests and the Windows environment: [docs/deve
 
 ## Backlog
 
-The repository's GitHub issues; the rules are in the repository's CLAUDE.md.
+This repository's GitHub issues; the rules are in overpressure's CLAUDE.md.
 
 ## Documentation
 
-The PICO 4's documents are in `docs/` here, its overview in `README.md` here; the repository's
-CLAUDE.md has the rules (facts only, no work logs). Keep the status in docs/roadmap.md and
+The PICO 4's documents are in `docs/` here, its overview in `README.md` here; overpressure's
+CLAUDE.md has the rules (facts only, no work logs). `python scripts/check-docs.py --repo devices/phoenix`
+checks the links; a link may not leave this repository, so links to overpressure are GitHub URLs. Releasing:
+[docs/releasing.md](docs/releasing.md). Keep the status in docs/roadmap.md and
 README.md current.
 
 ## Layout
@@ -51,7 +57,7 @@ README.md current.
   firmware list; `devloop.py` the development loop; `cycle.py`, `hardware_test.py` the acceptance
   runs; `image.py` the stage-1 image; `stockfiles.py` PICO OS's files for the data partition, from the
   headset's own backup (through `assets.py`; `stock.py` reads PICO's public OTA instead, for development).
-  What every headset shares is in `overpressure/` ([docs/tool.md](../../docs/tool.md#how-it-fits-together)).
+  What every headset shares is in `overpressure/` ([docs/tool.md](https://github.com/overpressure/overpressure/blob/main/docs/tool.md#how-it-fits-together)).
 - `initramfs/`: stage 1, the maintenance environment in `recovery` and the base of test images;
   `pico4-install` is the installer's only writer. `pico4-init` is PID 1, not busybox init: busybox's
   `kill(-1)` killed the f_mass_storage kernel thread and with it the USB link.
@@ -80,18 +86,22 @@ README.md current.
   The headset's own factory data is not extracted: the image links to persist, mounted read-only at boot
   (`pico4-persist`). `tests/`: unittest suites, `test_recovery_policy.sh`, `tests/qemu/` (the
   adaptation packages' tests run in their builds). `device.mk`: its Makefile targets.
-- Private and generated, ignored, at the repository root: `backup/` (identity
+- `headset.json` (codename, name, version, the headset interface it was made for; a release zip carries
+  its commit and date), `env.example` (its `.env` keys, added to a new `.env`).
+- Private and generated, ignored, at the overpressure checkout's root: `backup/` (identity
   `backup/device.json`, EDL backups), `assets/`, `cache/`, `out/` (`out/dev/` for the dev loop,
   `out/cycle-*/` evidence), `.env`.
 
 ## Commands
 
-From the repository root (the window's Advanced mode, `python -m overpressure gui --advanced`, runs the same
-steps):
+From the overpressure checkout's root (the window's Advanced mode, `python -m overpressure gui --advanced`,
+runs the same steps):
 
 ```sh
-python -m unittest                                       # host tests, seconds, no hardware
+python -m unittest discover -t . -s devices/phoenix/tests   # host tests, seconds, no hardware
+uv run ruff check devices/phoenix && uv run ty check devices/phoenix   # lint and types (not run on ".")
 bash devices/phoenix/tests/test_recovery_policy.sh       # stage-1 recovery policy
+bash devices/phoenix/scripts/c-tests.sh                  # the C tests of src/
 python -m overpressure build --firmware 5.13.7-global-seko   # stage-1 image -> out/, from the backup's boot
 # In the build container, as root (incremental; the project's packages from the pinned release of
 # overpressure/packages; --refresh for new Valve packages; --packages DIR takes a checkout of it and
@@ -178,7 +188,7 @@ passed.
 - **Entering development mode** (from PICO OS): `dev stage-abl`, `dev image`, `dev flash`,
   `dev connect`. It runs unattended: `adb reboot edl` works from PICO OS, and EDL needs no
   buttons. `.env` holds the headset's serials and the paths of its backup, loader and
-  engineering ABL (see `.env.example`).
+  engineering ABL (see `env.example`).
 - **Engineering ABL.** Flashing stage 1 needs the engineering ABL (`python -m overpressure dev
   stage-abl`). The stock ABL reports `DeviceUnlocked=true`, and the runner refuses it. Writing
   boot also needs the per-session `fastboot oem <token> unlock` authorization, which the tools
@@ -217,7 +227,7 @@ passed.
 
 ## Environment quirks
 
-The repository's CLAUDE.md lists the Windows ones. For the PICO 4: `adb`, `fastboot`
+overpressure's CLAUDE.md lists the Windows ones. For the PICO 4: `adb`, `fastboot`
 and edl-ng come from `python -m overpressure tools` (cache/tools) unless `.env` names other
 copies (`PICO4_PLATFORM_TOOLS`, `PICO4_EDL`); the Windows NCM initialization runs on the
 project's own Python (pyusb, libusb-package) unless `PICO4_NCM_PYTHON` names another.

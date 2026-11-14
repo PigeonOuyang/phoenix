@@ -163,7 +163,7 @@ manifest names them (`skipped`). Every other partition stays, the boot chain's `
 own data (`persist`, `fsg`, `modemst1`/`2`, the `mdm*efs` partitions, `devinfo`, `secdata`, `keystore`)
 included: no tool writes them, they are the way back after an EDL accident.
 
-On this computer the images' zero runs take no space ([overpressure/holes.py](../../../overpressure/holes.py)):
+On this computer the images' zero runs take no space ([overpressure/holes.py](https://github.com/overpressure/overpressure/blob/main/overpressure/holes.py)):
 they are handed back to the file system right after the manifest is written (sparse files on NTFS, ext4 and
 APFS; elsewhere the files keep their full size), and the files read the same, byte for byte. The PICO 4's
 backup of 9.8 GiB takes about 6.9 GiB. `python -m overpressure backup compact` does the same for a backup
@@ -291,7 +291,8 @@ enters development mode, in which the headset stays between tasks; the second re
 | `python -m overpressure dev stage-abl` | `adb reboot edl` (unless exactly one EDL device is attached), `device stage --partition abl` with hash check and readback, EDL reset, wait for PICO OS |
 | `python -m overpressure cycle` | the same staging (`--skip-stage` skips it), `hwtest flash-run`, then EDL, a readback of `boot` that must match the backup and come from `PICO4_EDL_SERIAL`, `device restore-abl` with readback, EDL reset, PICO OS. `--keep-abl` stops before the ABL restore; `--restore-only` runs only the readback, the restore and the reset |
 
-Both read `.env` at the repository root (copy [.env.example](../../../.env.example)); the keys are in
+Both read `.env` at the overpressure checkout's root (a new one starts with this repository's
+[env.example](../env.example)); the keys are in
 [hardware-testing.md](hardware-testing.md#settings-for-cycle-and-dev).
 
 ## Host tests

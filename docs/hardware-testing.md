@@ -39,10 +39,10 @@ so every acceptance boot writes `boot` and restores it.
 
 ## Settings for cycle and dev
 
-`cycle` and `dev` read `.env` at the repository root ([tooling/localconfig.py](../tooling/localconfig.py));
-[.env.example](../../../.env.example) lists the keys. Environment variables of the same names override it.
+`cycle` and `dev` read `.env` at the overpressure checkout's root ([tooling/localconfig.py](../tooling/localconfig.py));
+[env.example](../env.example) lists the keys. Environment variables of the same names override it.
 Lines are `KEY=VALUE`, `#` starts a comment, quotes around a value are removed, relative paths are relative
-to the repository root. A command that needs an empty key stops with `set PICO4_... in .env`. `hwtest` takes
+to the overpressure checkout's root. A command that needs an empty key stops with `set PICO4_... in .env`. `hwtest` takes
 command-line options instead; the cycle passes these settings to it.
 
 | Key | Default | Meaning |
@@ -186,7 +186,7 @@ all three without a kernel change: the 4.19 `f_ncm` recomputes the NDP signature
 to its control interface, and Windows' driver sends none. The stock kernel has no RNDIS, ECM or EEM function
 to use instead. Valve's kernel (the installed system) takes Windows 11's driver as it is.
 
-[overpressure/windows_ncm.py](../../../overpressure/windows_ncm.py) does it; `--windows-ncm-python` (runner) or
+[overpressure/windows_ncm.py](https://github.com/overpressure/overpressure/blob/main/overpressure/windows_ncm.py) does it; `--windows-ncm-python` (runner) or
 `PICO4_NCM_PYTHON` (cycle, dev loop) enables it. Install [UsbDk](https://github.com/daynix/UsbDk/releases)
 (`winget install daynix.UsbDk`, as administrator; the helper loads `UsbDkHelper.dll` from
 `%ProgramFiles%\UsbDk Runtime Library`) and run overpressure on a Python with pyusb and libusb-package (the
@@ -428,8 +428,8 @@ needs no hardware ([development.md](development.md)). With simulated devices,
 [tests/test_hardware.py](../tests/test_hardware.py) covers the runner (preflight, bootloader states, SSH
 identity, storage, HTTP, tampered backups, partial writes, restores, the stage-2 checks, the NCM order) and
 [tests/test_headset.py](../tests/test_headset.py) the cycle's order and refusals and the dev loop.
-[tests/test_evidence.py](../../../tests/test_evidence.py), [tests/test_storage.py](../../../tests/test_storage.py)
-and [tests/test_windows_ncm.py](../../../tests/test_windows_ncm.py) cover the recorded runs, the read-only
+[tests/test_evidence.py](https://github.com/overpressure/overpressure/blob/main/tests/test_evidence.py), [tests/test_storage.py](https://github.com/overpressure/overpressure/blob/main/tests/test_storage.py)
+and [tests/test_windows_ncm.py](https://github.com/overpressure/overpressure/blob/main/tests/test_windows_ncm.py) cover the recorded runs, the read-only
 storage policy and the NCM helper. They do not replace a run on the headset.
 
 ## Support bundle

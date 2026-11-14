@@ -38,7 +38,7 @@ Each step's document holds its design, measurements and reproduction steps.
   the dev image in `recovery`, the installed system in `boot`, `super` and `userdata`). The way back is verified
   whenever it is taken: `python -m overpressure cycle` checks stock boot by EDL readback, restores the stock ABL
   with readback and waits for PICO OS, alone (after `dev restore`, with `--restore-only`) or after an acceptance
-  run (`hwtest flash-run`). Settings come from a git-ignored `.env` ([.env.example](../../../.env.example),
+  run (`hwtest flash-run`). Settings come from a git-ignored `.env` ([env.example](../env.example),
   [hardware-testing.md](hardware-testing.md)).
 - **Safety on the host.** Every command that touches the headset asks a disclaimer first (`--accept-disclaimer`
   for unattended runs) and refuses on a computer on its battery below 30 %; `dev install` and `dev restore`
@@ -91,7 +91,7 @@ verified; a hard reset then starts PICO OS. The cause is not known.
   the stock kernel has no ACM function.
 - Every physical block device is read-only; the root file system is in RAM.
 - The stock kernel rejects Windows' NCM packets (`Wrong NDP SIGN`) until the host sends CDC `SET_CRC_MODE(0)`;
-  [overpressure/windows_ncm.py](../../../overpressure/windows_ncm.py) sends it through UsbDk after each stage-1
+  [overpressure/windows_ncm.py](https://github.com/overpressure/overpressure/blob/main/overpressure/windows_ncm.py) sends it through UsbDk after each stage-1
   boot. Valve's kernel needs no such request.
 - A watchdog returns the headset to fastboot after 5 minutes without usable USB traffic or a login; test runs
   add a connection deadline and a maximum runtime. A kernel panic reboots instead of leaving the headset in

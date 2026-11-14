@@ -5,15 +5,23 @@
 | What | how the PICO 4's part is laid out, built and tested, and the fastest way from a change to the headset |
 | Build | the userspace and system image in the build container (`python -m overpressure container run -- ...`); PICO OS's files come from the headset's backup at the install |
 | Test | `python -m unittest` on the host; the installed system (`dev install`, `dev check`) is the integration test |
-| Code | `devices/phoenix/` ([layout](#repository-layout)); the generic package `overpressure/` ([docs/tool.md](../../../docs/tool.md)) |
+| Code | this repository, in `devices/phoenix/` of an overpressure checkout ([layout](#repository-layout)); the generic package `overpressure/` ([docs/tool.md](https://github.com/overpressure/overpressure/blob/main/docs/tool.md)) |
 
 The headset-side workflows (acceptance runner, acceptance cycle, development loop) are in
-[hardware-testing.md](hardware-testing.md). Paths are relative to `devices/phoenix/`; commands run from the
-repository root.
+[hardware-testing.md](hardware-testing.md). Paths are relative to this repository; commands run from the
+root of the overpressure checkout it is cloned into:
+
+```sh
+git clone https://github.com/overpressure/overpressure
+cd overpressure
+git clone https://github.com/overpressure/phoenix devices/phoenix   # never replaced by "headset add"
+```
 
 ## Repository layout
 
 ```text
+headset.json      codename, name, version, the overpressure headset interface (api); commit and date in a release
+env.example       its keys in overpressure's .env (PICO4_), added to a new .env
 tooling/          the PICO 4's host tooling (Python): python -m overpressure COMMAND
   __init__.py       HEADSET: its commands, the window's steps and the installer's workflows
   install.py        the installer's three workflows: install, upgrade, restore to stock
@@ -38,34 +46,34 @@ kernel/           the pinned release of overpressure/linux (release.json), build
 src/              C sources outside the packages: reboot/ (pico4-reboot), splash/ (pico4-splash)
 prebuilt/         static aarch64 pico4-reboot and pico4-splash, so stage 1 builds without a compiler
 scripts/          build-userspace.sh, build-system-image.sh, build-kernel-step.sh, upgrade-check.sh (with
-                  upstream.py), check-package-lock.py and the on-headset preflight
+                  upstream.py), check-package-lock.py, c-tests.sh and the on-headset preflight
+.github/          CI (against overpressure's main), the release, the weekly upgrade check
 tests/            host tests (unittest), test_recovery_policy.sh, qemu/
 docs/             documentation
 ```
 
-The root package `overpressure/` holds what other headsets share (listed in the repository's
-[CLAUDE.md](../../../CLAUDE.md)): `.env` settings, the doctor, the stage-1 builder, OTA handling, adb and
+overpressure's package `overpressure/` holds what other headsets share (listed in its
+[CLAUDE.md](https://github.com/overpressure/overpressure/blob/main/CLAUDE.md)): `.env` settings, the doctor, the stage-1 builder, OTA handling, adb and
 fastboot, Qualcomm EDL, verified backups and the backup file, processes and waits, SSH, recorded runs, the
 read-only storage policy, the disclaimer (`disclaimer.py`) and the computer's power check (`power.py`), the
 formats (with the ext4 and FAT readers), `elfdeps.py`, `windows_ncm.py`, and `linux.py` with `container/`
 (the build container). `scripts/stock-lib.sh` serves the kernel build (a file out of the stock vendor image,
 through overpressure's ext4 reader).
 
-Private and generated, out of Git: `backup/` (identity and EDL backups), `assets/` (Firehose loader,
+Private and generated, out of Git, at the overpressure checkout's root: `backup/` (identity and EDL backups), `assets/` (Firehose loader,
 engineering ABL, GPU firmware, sensor data), `cache/` (downloads), `out/` (build output and test evidence;
-`out/dev/` for the development loop) and `.env` (the headset's settings, see
-[.env.example](../../../.env.example)).
+`out/dev/` for the development loop) and `.env` (the headset's settings, see [env.example](../env.example)).
 
 ## Build host
 
 `python -m overpressure doctor` (*Check dependencies* in the window) checks this computer and says how to fix
 what is missing; `python -m overpressure tools` fetches adb, fastboot and edl-ng
-([tooling/doctor.py](../tooling/doctor.py), [docs/tool.md](../../../docs/tool.md#dependencies)).
+([tooling/doctor.py](../tooling/doctor.py), [docs/tool.md](https://github.com/overpressure/overpressure/blob/main/docs/tool.md#dependencies)).
 
 | Task | Needs |
 | --- | --- |
 | Stage-1 image, stock firmware and assets, host tests, headset commands | Python 3.9+ on Windows, Linux or macOS (the start scripts or `uv sync` add the pinned brotli, pyusb and libusb-package); platform-tools and OpenSSH for the headset |
-| Userspace archive, system image, Valve's kernel, the QEMU test kernel | the build container ([docs/tool.md](../../../docs/tool.md#linux-root-steps)): Docker or Podman on any host. Its image has every tool, LLVM 20 and qemu-user-static, and registers the aarch64 binfmt handler (F flag) on an x86-64 engine that has none |
+| Userspace archive, system image, Valve's kernel, the QEMU test kernel | the build container ([docs/tool.md](https://github.com/overpressure/overpressure/blob/main/docs/tool.md#linux-root-steps)): Docker or Podman on any host. Its image has every tool, LLVM 20 and qemu-user-static, and registers the aarch64 binfmt handler (F flag) on an x86-64 engine that has none |
 | Windows NCM initialization (a stage 1 on the stock kernel: the acceptance runner's) | UsbDk; pyusb and libusb-package |
 
 On an arm64 engine (Apple silicon, an arm64 Linux host) the build environment runs natively.
@@ -110,7 +118,7 @@ python -m overpressure assets --firmware 5.13.7-global-seko [--stock STOCK] [--a
 folder (`STOCK`, by default `cache/pico4-stock/FIRMWARE`) with `python -m overpressure stock`, then each kind
 into a fresh `assets/KIND-VERSION.new` that replaces the old folder only when complete. It is Python only: the
 stock images are read by overpressure's read-only ext4 and FAT readers
-([overpressure/ext4.py](../../../overpressure/ext4.py), [overpressure/fat.py](../../../overpressure/fat.py)), the
+([overpressure/ext4.py](https://github.com/overpressure/overpressure/blob/main/overpressure/ext4.py), [overpressure/fat.py](https://github.com/overpressure/overpressure/blob/main/overpressure/fat.py)), the
 OTA's block images decompressed by the pinned brotli package (or the `brotli` command without it). No
 e2fsprogs, mtools or Linux is involved.
 
@@ -118,7 +126,7 @@ e2fsprogs, mtools or Linux is involved.
 against the zip's CRC: `system` and `vendor` as ext4 images rebuilt from their brotli block images and transfer
 lists, `firmware-update/NON-HLOS.bin` as `modem.bin` (FAT16), `firmware-update/dspso.bin` as `dsp.bin` (ext4),
 `recovery.img` and `boot.img`; `manifest.json` holds their sha256, which `assets` checks before it reads an image
-([overpressure/assets.py](../../../overpressure/assets.py)). The firmware is the headset's (`PICO4_FIRMWARE`,
+([overpressure/assets.py](https://github.com/overpressure/overpressure/blob/main/overpressure/assets.py)). The firmware is the headset's (`PICO4_FIRMWARE`,
 `python -m overpressure match`, [stage1.md](stage1.md)). The kernel step reads the same folder's `vendor.img` in
 the build container (the repository at `/work`). The results are proprietary: keep the stock folder and
 `assets/` private.
@@ -194,7 +202,7 @@ Each step is skipped when its inputs did not change:
    packages (`pico4-base`, `-power`, `-audio`, `-xr`, `-session`, `-checks`); their units are enabled as their
    presets (`usr/lib/systemd/system-preset/50-pico4-*.preset`) name them, the Frame's units the image does not
    use are masked.
-   [overpressure/elfdeps.py](../../../overpressure/elfdeps.py) checks natively that the programs and libraries of
+   [overpressure/elfdeps.py](https://github.com/overpressure/overpressure/blob/main/overpressure/elfdeps.py) checks natively that the programs and libraries of
    the Frame's and the project's packages, and of those depending on them, find their libraries and symbol
    versions and that the programs' symbols are all defined; the script excludes a few optional programs by name.
 5. **Archive.** The upstream packages are checked against the definition's `packages.lock`, then
@@ -215,8 +223,9 @@ packages and compression run emulated: about a minute for Monado.
 ## Upgrade check
 
 The image pins every package, which move only with a release
-([docs/releasing.md](../../../docs/releasing.md)). Whether the image would still build on what Valve publishes
-meanwhile is checked weekly in CI on GitHub's ARM64 runner ([upgrade.yml](../../../.github/workflows/upgrade.yml),
+([releasing.md](releasing.md#moving-to-new-upstream-versions)). Whether the image would still build on what
+Valve publishes meanwhile is checked weekly in CI on GitHub's ARM64 runner
+([upgrade.yml](../.github/workflows/upgrade.yml), on overpressure's `main`,
 Mondays, or by hand), and on any computer with the build container:
 
 ```sh
@@ -237,12 +246,14 @@ builds fails nothing: whether the session runs on it is the headset's check befo
 
 | Level | Command | Takes |
 | --- | --- | --- |
-| Host tests: protocols, validators, the installer, runner, cycle and dev loop against fakes (with the generic tests) | `python -m unittest` | seconds |
+| Host tests: protocols, validators, the installer, runner, cycle and dev loop against fakes | `python -m unittest discover -t . -s devices/phoenix/tests` (`python -m unittest`: with the generic tests) | seconds |
+| Formatting, lint and types (CI runs them; `make lint` on `.` skips this folder) | `uv run ruff format --check devices/phoenix`, `uv run ruff check devices/phoenix`, `uv run ty check devices/phoenix` | seconds |
 | Stage-1 recovery policy | `bash devices/phoenix/tests/test_recovery_policy.sh` | seconds |
 | The host tests and every shell test above | `make test` (on Linux) | seconds |
 | The same on any host, in the build container, as root | `python -m overpressure container run -- make test` (`make container-test`) | as `make test`, once the image is built |
-| C tests of this repository's own sources (CI runs them) | `bash scripts/c-tests.sh` (a C compiler) | seconds |
-| Shellcheck over every tracked shell script, down to warnings (CI runs it) | `python -m overpressure container run -- python3 scripts/run-shellcheck.py` | seconds |
+| C tests of this repository's own sources (CI runs them) | `bash devices/phoenix/scripts/c-tests.sh` (a C compiler) | seconds |
+| Shellcheck over every tracked shell script, down to warnings (CI runs it) | `python -m overpressure container run -- python3 scripts/run-shellcheck.py --repo devices/phoenix` | seconds |
+| Links, private data (CI runs them) | `python scripts/check-docs.py --repo devices/phoenix`, `python scripts/check-private.py --repo devices/phoenix --history` | seconds |
 | On the headset: the integration test | `python -m overpressure dev install` and `dev check`, on the installed system | minutes; [hardware-testing.md](hardware-testing.md) |
 | Optional: stage 1 on a QEMU test kernel (from `tests/qemu/build-test-kernel.sh`) | `devices/phoenix/tests/qemu/run-selftest.sh` (`make qemu-stage1`) | about 3 min |
 
@@ -305,7 +316,7 @@ drains while tethered, and when it charges at less than 200 mA below 95 % (`powe
 
 ## Conventions
 
-The repository's [CLAUDE.md](../../../CLAUDE.md) has them: Python on the standard library and the packages
+The repository's [CLAUDE.md](https://github.com/overpressure/overpressure/blob/main/CLAUDE.md) has them: Python on the standard library and the packages
 `pyproject.toml` pins, each with a fallback; `set -euo pipefail` in shell scripts; SPDX headers in C (BSL-1.0
 for Monado code); external sources pinned by commit or hash, patches as `.patch` files next to their PKGBUILD
 with regenerated `sha256sums`; the project's own sources in `src/`, `SKIP` in the recipes; documents state facts;

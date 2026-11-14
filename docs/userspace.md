@@ -66,7 +66,7 @@ repository moves on and nothing is signed. SteamVR is one of these packages, so 
 package's current file. A release rebuilds only while every locked hotfix package is still published, or from a build
 root whose package cache (`BUILD_ROOT/packages/environment/var/cache/pico4-pkgs`) and databases still hold them. Otherwise a clean
 build fails the lock until the lock moves to what Valve publishes
-([docs/releasing.md](../../../docs/releasing.md#moving-to-new-upstream-versions)). There is no mirror: Valve's packages
+([releasing.md](releasing.md#moving-to-new-upstream-versions)). There is no mirror: Valve's packages
 may not be redistributed.
 
 **What updates by itself.** The system image is read-only and Valve's updater is not installed (`atomupd-manager` is a
@@ -80,7 +80,8 @@ only refreshes pacman's keys). What moves lives in the data partition:
 | SteamVR, Mesa, PipeWire, systemd, the kernel, every other package | the system image (`/opt/steamvr` is the runtime `openvrpaths.vrpath` names) | only with a new image |
 
 Holding the client at a tested version is open: whether an older client keeps working against Steam's servers is not
-known. The image reports its version and commit in `/usr/share/pico4/version`.
+known. The image reports this repository's version (`headset.json`) and commit, and overpressure's version, in
+`/usr/share/pico4/version` (`version=`, `commit=`, `overpressure=`).
 
 ### systemd stays at 257.x
 
@@ -192,7 +193,7 @@ What the system keeps:
 
 ## Build
 
-As root in the build container ([docs/tool.md](../../../docs/tool.md#linux-root-steps)); the window's *Userspace
+As root in the build container ([docs/tool.md](https://github.com/overpressure/overpressure/blob/main/docs/tool.md#linux-root-steps)); the window's *Userspace
 archive* step and `make userspace` run the same with the defaults:
 
 ```sh
@@ -228,7 +229,7 @@ How it works:
 - The base root ([packages.txt](https://github.com/overpressure/packages/blob/main/headsets/phoenix/packages.txt)) is kept between builds; each build assembles the image
   root as an overlay on it with the project packages, among them the adaptation layer's (`pico4-base`, `-power`,
   `-audio`, `-xr`, `-session`, `-checks`), whose presets enable their units, and the session user.
-- [overpressure/elfdeps.py](../../../overpressure/elfdeps.py) checks natively, as `ldd -r` would, that the programs and
+- [overpressure/elfdeps.py](https://github.com/overpressure/overpressure/blob/main/overpressure/elfdeps.py) checks natively, as `ldd -r` would, that the programs and
   libraries of the Frame and project packages and of the packages that depend on them find their libraries, with
   symbol versions, and that every symbol they need is defined in what the program loads (a build against a newer
   library can call a function the installed one lacks, as the Frame's Xwayland does). Libraries are checked through
@@ -243,8 +244,8 @@ timings are in [development.md](development.md).
 ### Reproducible builds
 
 Two clean builds of a commit (a new `BUILD_ROOT`, the same assets and lock) give the same archive, and the same
-archive gives the same system image. Every time the build records is the commit's date, as `SOURCE_DATE_EPOCH` (set
-it to override):
+archive gives the same system image. Every time the build records is this repository's commit date (its Git in a
+clone, `headset.json`'s `date` in a release zip), as `SOURCE_DATE_EPOCH` (set it to override):
 
 | What would differ | How the build fixes it |
 | --- | --- |

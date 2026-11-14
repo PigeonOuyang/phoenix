@@ -1,6 +1,8 @@
 # PICO 4 (phoenix)
 
-[overpressure](../../README.md) on the original PICO 4 (2022, Snapdragon XR2): Valve's Steam Frame kernel with the
+The PICO 4's headset module for [overpressure](https://github.com/overpressure/overpressure), with its own
+releases; overpressure's installer downloads it into `devices/phoenix/`. On the original PICO 4 (2022, Snapdragon
+XR2): Valve's Steam Frame kernel with the
 PICO's own drivers and device tree boots a SteamOS-compatible system installed on the headset (system in `super`,
 data in `userdata`, as PICO OS lays them out). It runs Valve's VR session (SteamVR in gamescope) with a Monado
 driver for the headset's lenses, cameras, sensors and controllers. A small Alpine system in `recovery`, on the same
@@ -33,10 +35,13 @@ and about 10 GB free there (the backup is most of it). The headset builds its ow
 downloading about 2.2 GB through the computer's connection; nothing is built on the computer, and it needs no
 Docker or Podman. On Linux also `python3-tk`
 (or your distribution's equivalent), for a smooth window, and the Android udev rules (Arch `android-udev`, Debian
-`android-udev-rules`), for USB access to the headset ([how it is checked](../../docs/tool.md#usb-access-on-linux)).
+`android-udev-rules`), for USB access to the headset ([how it is checked](https://github.com/overpressure/overpressure/blob/main/docs/tool.md#usb-access-on-linux)).
 
-**The installer.** Double-click `Install.cmd` (Windows) or `Install.command` (macOS), or run `sh install.sh`
-(Linux). Accept the disclaimer, choose the PICO 4, then **Install**, **Upgrade** or **Restore to stock**. Each
+**The installer.** Download [overpressure's release](https://github.com/overpressure/overpressure/releases) and
+unpack it. Double-click `Install.cmd` (Windows) or `Install.command` (macOS), or run `sh install.sh` (Linux).
+Accept the disclaimer and choose the PICO 4: the first time, **Download** fetches this repository's newest stable
+release into `devices/phoenix/` (or a beta, a preview of `main`, an older release). Then **Install**, **Upgrade**
+or **Restore to stock**. Each
 goes on where it stopped when started again, and after a failure says what state the headset is in and what to
 do. The install's four stages:
 
@@ -54,8 +59,9 @@ headset on the cable through that setup: its first start may update the lens and
 ([docs/install.md](docs/install.md#the-upgrade-and-the-way-back)). *Export backup…* writes the backup into one
 checked file to keep safe; *Import backup…* brings it to another computer.
 
-**In a terminal**, the same: `python -m overpressure install`, `upgrade`, `restore` and `backup export|import FILE` (and `backup compact` for a backup from an older version)
-([the tool](../../docs/tool.md#the-installer)); `python -m overpressure steps` lists every step's command. Commands
+**In a terminal**, the same: `python -m overpressure headset add phoenix` (`--channel beta|preview`, `--version
+V`), then `python -m overpressure install`, `upgrade`, `restore` and `backup export|import FILE` (and `backup compact` for a backup from an older version)
+([the tool](https://github.com/overpressure/overpressure/blob/main/docs/tool.md#the-installer)); `python -m overpressure steps` lists every step's command. Commands
 that touch the headset ask the disclaimer `y`/`n` first (`--accept-disclaimer` for unattended runs) and refuse on a
 laptop on battery below 30 %.
 
@@ -91,9 +97,19 @@ then start the installer again; it enters EDL mode afresh.
 | [docs/release-checklist.md](docs/release-checklist.md) | every check of a release image |
 | [docs/research.md](docs/research.md) | background: the PICO 4, the Steam Frame, related projects |
 
-## This folder
+## This repository
+
+A release is a tag `vMAJOR.MINOR[-beta[.N]]` naming `headset.json`'s version ([docs/releasing.md](docs/releasing.md)).
+For development, clone it into an overpressure checkout; commands run from that checkout's root:
+
+```sh
+git clone https://github.com/overpressure/overpressure
+git clone https://github.com/overpressure/phoenix overpressure/devices/phoenix
+```
 
 ```text
+headset.json the codename, name, version and the overpressure headset interface it was made for
+env.example  its keys in overpressure's .env
 tooling/     host tooling (Python): its commands, the window's steps, the installer's plans
 kernel/      Valve's kernel: the pinned release of overpressure/linux, its build script, boot images
 initramfs/   the maintenance system's files in the Alpine ramdisk
@@ -105,4 +121,5 @@ tests/       host tests and the QEMU boot tests
 docs/        documentation
 ```
 
-Device data and vendor files stay private in `backup/`, `assets/`, `cache/`, `out/` and `.env` at the repository root.
+Device data and vendor files stay private in `backup/`, `assets/`, `cache/`, `out/` and `.env` at the root of the
+overpressure checkout.

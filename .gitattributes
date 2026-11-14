@@ -1,0 +1,7 @@
+# Files that end up inside the Linux ramdisk and the image keep LF line endings, also on Windows
+# checkouts (the image build strips CRs as a safety net too).
+* text=auto eol=lf
+*.cmd text eol=crlf
+prebuilt/** binary
+# A release zip (git archive) fills in the commit and its time: the zip has no Git.
+headset.json export-subst

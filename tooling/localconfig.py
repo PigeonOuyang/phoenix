@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Unlicense
-"""The PICO 4's settings in .env (PICO4_ keys; .env.example lists them).
+"""The PICO 4's settings in .env (PICO4_ keys; env.example lists them).
 
 They describe one particular headset: its serials, its EDL backup and the private files its
 workflow uses (the Firehose loader, the engineering ABL, edl-ng). What every Qualcomm Android

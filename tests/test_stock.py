@@ -34,7 +34,7 @@ class FirmwareDefaultTests(unittest.TestCase):
         self.assertIn(f"FIRMWARE ?= {FIRMWARE}\n", mk)
 
     def test_the_example_settings_repeat_it(self):
-        example = (ROOT.parents[1] / ".env.example").read_text(encoding="utf-8")
+        example = (ROOT / "env.example").read_text(encoding="utf-8")
         self.assertIn(f"PICO4_FIRMWARE={FIRMWARE}\n", example)
 
 

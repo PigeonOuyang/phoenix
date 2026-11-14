@@ -1,0 +1,8 @@
+{
+ "codename": "phoenix",
+ "name": "PICO 4",
+ "version": "1.0-beta",
+ "api": 1,
+ "commit": "$Format:%H$",
+ "date": "$Format:%ct$"
+}

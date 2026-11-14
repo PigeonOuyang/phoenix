@@ -165,19 +165,25 @@ cp "$source_dir/prebuilt/aarch64/pico4-reboot" "$source_dir/prebuilt/aarch64/pic
 find "$project.new" -name __pycache__ -prune -exec rm -rf {} +
 rm -rf "$project"
 mv "$project.new" "$project"
-# What the image says it is, from the tree the snapshot was taken of: the release's version and the
-# Git commit. The commit's time is every time the build records (SOURCE_DATE_EPOCH: package build
-# dates and file times, install dates, caches, the archive), so that two clean builds of a commit give
-# the same archive (docs/userspace.md#reproducible-builds).
-version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$repo/pyproject.toml")
-# A worktree's repository is at OVERPRESSURE_GIT_DIR in the build container (overpressure/linux.py).
-git_where=(-C "$repo")
-[ -z "${OVERPRESSURE_GIT_DIR:-}" ] || git_where=(--git-dir="$OVERPRESSURE_GIT_DIR" --work-tree="$repo")
-# Where the tree has no Git (a release, the headset's build), the caller names it: OVERPRESSURE_COMMIT.
-commit=${OVERPRESSURE_COMMIT:-$(git -c safe.directory='*' "${git_where[@]}" describe --always --dirty --abbrev=12 2>/dev/null || echo unknown)}
-if [[ -z ${SOURCE_DATE_EPOCH:-} ]]; then
-    SOURCE_DATE_EPOCH=$(git -c safe.directory='*' "${git_where[@]}" log -1 --format=%ct 2>/dev/null || date +%s)
+# What the image says it is, from the tree the snapshot was taken of: this headset's release (its
+# headset.json) and Git commit, and the overpressure that built it. The commit's time is every time the
+# build records (SOURCE_DATE_EPOCH: package build dates and file times, install dates, caches, the
+# archive), so that two clean builds of a commit give the same archive (docs/userspace.md#reproducible-builds).
+field() { sed -n "s/^ \"$1\": \"\(.*\)\",\{0,1\}\$/\1/p" "$source_dir/headset.json"; }
+version=$(field version)
+overpressure=$(sed -n 's/^version = "\(.*\)"/\1/p' "$repo/pyproject.toml")
+if [[ -e $source_dir/.git ]]; then # a development checkout of the headset
+    commit=$(git -c safe.directory='*' -C "$source_dir" describe --always --dirty --abbrev=12 2>/dev/null || echo unknown)
+    epoch=$(git -c safe.directory='*' -C "$source_dir" log -1 --format=%ct 2>/dev/null || true)
+else # a release: git archive wrote its commit and time into headset.json
+    commit=$(field commit) epoch=$(field date)
+    [[ $commit != \$Format* ]] || commit=unknown
+    [[ $epoch != \$Format* ]] || epoch=""
+    commit=${commit:0:12}
 fi
+# Where the tree has no Git and no release's record (the headset's build), the caller names it.
+commit=${OVERPRESSURE_COMMIT:-$commit}
+SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-${epoch:-$(date +%s)}}
 export SOURCE_DATE_EPOCH
 
 # -- 1. build environment and project packages --------------------------------------------
@@ -565,7 +571,7 @@ done
 python3 "$source_dir/scripts/check-package-lock.py" "$build_root/upstream-hashes.txt" "$definition/packages.lock" \
     ${update_lock:+--write "$output/packages.lock"}
 install -d -m 0755 "$T/usr/share/pico4"
-printf 'version=%s\ncommit=%s\n' "$version" "$commit" > "$T/usr/share/pico4/version"
+printf 'version=%s\ncommit=%s\noverpressure=%s\n' "$version" "$commit" "$overpressure" > "$T/usr/share/pico4/version"
 unmount_below "$T" inner
 rm -rf "$T/var/cache/pacman/pkg"/* "$T/var/log/pacman.log"
 # pacman records when it installed each package and has no SOURCE_DATE_EPOCH.
