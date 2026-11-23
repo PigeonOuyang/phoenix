@@ -122,6 +122,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(out.getvalue().splitlines(), ["progress: reading aop (50%)", "progress: reading aop (100%)"])
         with self.assertRaisesRegex(ValueError, "failed"), contextlib.redirect_stderr(io.StringIO()):
             device.run_dump([sys.executable, "-c", "print('ERROR: no answer')"])
+        noise = "print('libusb: warning [darwin_transfer_status] transfer error: timed out'); print('Dump completed')"
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertIn("Dump completed", device.run_dump([sys.executable, "-c", noise]))
+        stalled = "print('libusb: error [submit_bulk_transfer] bulk transfer failed (dir = In): pipe is stalled')"
+        with self.assertRaises(device.DumpError), contextlib.redirect_stderr(io.StringIO()):
+            device.run_dump([sys.executable, "-c", stalled])
         # The error keeps the output's end; the backup's edl.log takes all of it from the error.
         script = "print('first line'); print('x' * 2000); print('ERROR: QUD write to COM5 timed out')"
         with self.assertRaises(device.DumpError) as caught, contextlib.redirect_stderr(io.StringIO()):

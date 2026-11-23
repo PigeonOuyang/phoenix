@@ -277,6 +277,9 @@ def confirm(args: argparse.Namespace, identity: dict) -> None:
 
 def dispatch(args: argparse.Namespace) -> None:  # noqa: C901, PLR0911, PLR0912, PLR0915  # the unlock workflow's commands, kept as verified on hardware
     """Run one device command; previews unless --execute."""
+    for tool in ("adb", "fastboot"):  # not named: the settings' tool, as every other command runs it
+        if hasattr(args, tool) and getattr(args, tool) is None:
+            setattr(args, tool, localconfig.load().tool(tool))
     if args.command == "token":
         print("fastboot oem " + unlock_token(chip_id(args.chip_id)) + " unlock")
         return
@@ -419,11 +422,11 @@ def parser() -> argparse.ArgumentParser:
     token.add_argument("chip_id")
     sub.add_parser("fetch-unlock-files", help="the engineering ABL and Firehose loader from PICO's public downloads")
     probe = sub.add_parser("probe", help="read stock headset identity via ADB")
-    probe.add_argument("--adb", default="adb")
+    probe.add_argument("--adb", help="adb to run (default: the settings' tool)")
     probe.add_argument("--serial")
     probe.add_argument("--output", type=Path, default=Path("backup/device.json"))
     check = sub.add_parser("check-unlocked", help="read fastboot unlock state; fail closed")
-    check.add_argument("--fastboot", default="fastboot")
+    check.add_argument("--fastboot", help="fastboot to run (default: the settings' tool)")
     check.add_argument("--serial")
     check.add_argument("--critical", action="store_true")
     verify = sub.add_parser("verify-backup")
@@ -435,7 +438,7 @@ def parser() -> argparse.ArgumentParser:
         p.add_argument("--execute", action="store_true")
         p.add_argument("--confirm-device", help="saved ADB serial; EDL physical identity must be checked manually")
         if name == "unlock":
-            p.add_argument("--fastboot", default="fastboot")
+            p.add_argument("--fastboot", help="fastboot to run (default: the settings' tool)")
             p.add_argument("--serial", help="fastboot serial, if different from ADB")
             p.add_argument("--accept-data-loss", action="store_true")
         else:
@@ -488,7 +491,8 @@ def run_dump(command: list[str], timeout: int = 60) -> str:
         output = process.run_streamed(command, timeout, DumpProgress())
     except RuntimeError as exc:
         raise DumpError(str(exc), getattr(exc, "output", "")) from exc
-    if re.search(r"\b(?:FAILED|ERROR)\b", output, re.IGNORECASE):
+    # macOS' libusb warns about transfers its caller retries and completes ("transfer error: timed out")
+    if re.search(r"\b(?:FAILED|ERROR)\b", re.sub(r"(?m)^libusb: warning .*$", "", output), re.IGNORECASE):
         msg = f"Command failed: {output[-800:]}"
         raise DumpError(msg, output)
     return output
