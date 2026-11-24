@@ -663,12 +663,21 @@ bytes, 4 with bit 6) in µs before the packet's time.
   level = amplitude × 255, whole milliseconds, at least 10 ms, Monado's minimum duration as 500 ms,
   0 ms as a stop, at PICO OS's default strength of 75% (so PICO OS's low-battery limit never applies).
   SteamVR's pulses without a duration (hover feedback) go out as 10 ms.
-- **Render models.** PICO OS's textured OBJs (`/system/pre_resource/data/misc/user/controller/Neo3Phx/`,
-  `60.obj` left, `61.obj` right), whose origin is the aim pose, converted by
-  [`tooling/controllermodel.py`](../tooling/controllermodel.py) and installed to
-  `/usr/share/steamvr-monado/resources/rendermodels/` as `{monado}pico4_controller_left` and `_right`.
-  The battery strip on the base (group `Power`) is the models' `status` component, with UVs on
-  SteamVR's battery pips (four steps; none at level 0).
+- **Render models.** [`tooling/controllermodel.py`](../tooling/controllermodel.py) converts PICO OS's
+  textured OBJs (`/system/pre_resource/data/misc/user/controller/Neo3Phx/`, `60.obj` left, `61.obj`
+  right) to `{monado}pico4_controller_left` and `_right`, in metres in the aim frame. For the known
+  disconnected topology it separates the four face buttons, trigger, grip and thumbstick from the
+  stationary shell, tracking ring and LED, retaining the original geometry, UVs, normals and idle
+  texture. SteamVR's native JSON `motion` descriptions animate these parts from the driver's input
+  paths; MENU and PICO have separate aliases without changing the handed `system` mapping.
+  Each button has a model component bit as well as its input path; SteamVR needs both even with
+  its modern model-state API. The extra face button uses a distinct bit without changing the
+  handed system mapping. The thumbstick bearing centre comes from its two lowest circular
+  cross-sections, the trigger hinge from the front lip and the grip hinge from the tilted mounting
+  rim. Travel is nominal visual feedback, not factory calibration.
+  The complete static OBJ remains available; unknown topology keeps the static body. Aim, grip and
+  battery `status` components keep their existing transforms and battery-panel UVs. These models
+  stay in the headset's private stock tree: no new model assets or runtime dependencies are packaged.
 
 ### Controller tracking
 
