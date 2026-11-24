@@ -13,13 +13,15 @@ PICO OS publishes (x right, y up, z back): PICO OS's own nominal LED rings
 (aim = (-m.y, m.x, m.z), less the lever arm of lever-arm.json), lie on the models' surface
 without any rotation or offset. `--check` verifies that for every LED.
 
-For each hand this writes a SteamVR render model directory `pico4_controller_<hand>/`: the body
-as a triangulated OBJ in metres with its MTL and PNG, and a JSON with the body component and the
+For each hand this writes a SteamVR render model directory `pico4_controller_<hand>/`: the model
+as triangulated OBJs in metres with its original MTL and PNG, and a JSON with the body component and the
 pose components `aim`, `openxr_aim` and `tip` (the model's origin), plus `grip`, `openxr_grip`
 and `handgrip` (the name in SteamVR's pico_controller profile) from PICO OS's aim-to-grip
 transform when it is given. SteamVR's system UI draws its controller status panel, with the battery's
 pips, on a render model's `status` component, so PICO OS's indicator becomes that component, its UVs
-on the pips of the panel: the charge shows where PICO OS shows it. The models are vendor data:
+on the pips of the panel: the charge shows where PICO OS shows it. For the known disconnected
+mesh topology, buttons, trigger, grip and thumbstick become separate components with SteamVR's
+native `motion` descriptions. Unknown topology keeps the static model. The models are vendor data:
 they are read from the headset's own firmware and stay out of the repository.
 
     python -m devices.phoenix.tooling.controllermodel MODEL_DIR OUTPUT_DIR
@@ -32,6 +34,7 @@ import argparse
 import json
 import math
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -60,6 +63,20 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MIN_CORNERS = CORNER_INDICES = 3
 #: The aim-to-grip quaternion's y and z within this of zero: a turn about x alone.
 AXIS_TOLERANCE = 1e-9
+#: Triangle counts of the stock model's disconnected parts, largest first. No vertex or UV data.
+PART_TRIANGLES = (2234, 650, 606, 224, 215, 160, 160, 160, 96, 14)
+#: Weld only for connectivity (0.1 micrometre); retain the original positions, UVs and normals.
+WELD_DECIMALS = 7
+#: Nominal visual travel, not controller calibration.
+BUTTON_TRAVEL_M = 0.001
+TRIGGER_TRAVEL_DEG = -15.0
+GRIP_TRAVEL_DEG = 11.0
+STICK_TRAVEL_DEG = 20.0
+#: Two circular cross-sections determine the bearing centre.
+BEARING_RINGS = 2
+#: A separate render-model bit for the extra face button. The driver still publishes its
+#: independent input path; SteamVR requires a component bit even for modern path-based motion.
+EXTRA_MODEL_BUTTON = 8
 
 
 class ControllerModelError(ValueError):
@@ -128,7 +145,9 @@ def _face(words: list[str]) -> list[tuple[int, ...]]:
     return corners
 
 
-def _compact(sources: tuple[list[tuple[float, ...]], ...], faces: list[list[tuple[int, ...]]], hand: str) -> Mesh:
+def _compact(
+    sources: tuple[Sequence[tuple[float, ...]], ...], faces: Sequence[Sequence[tuple[int, ...]]], hand: str
+) -> Mesh:
     """Return the faces as a mesh of only the vertices they use, fanned into triangles."""
     mesh = Mesh()
     remap: list[dict[int, int]] = [{}, {}, {}]
@@ -151,6 +170,190 @@ def _compact(sources: tuple[list[tuple[float, ...]], ...], faces: list[list[tupl
         for i in range(1, len(indexed) - 1):
             mesh.triangles.append((indexed[0], indexed[i], indexed[i + 1]))
     return mesh
+
+
+def connected_parts(mesh: Mesh) -> list[Mesh]:
+    """Split triangles by welded position connectivity, without changing any vertex attributes."""
+    parents = list(range(len(mesh.positions)))
+
+    def root(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    unique = {}
+    for index, point in enumerate(mesh.positions):
+        key = tuple(round(v, WELD_DECIMALS) for v in point)
+        if key in unique:
+            parents[root(index)] = root(unique[key])
+        else:
+            unique[key] = index
+    for triangle in mesh.triangles:
+        for corner in triangle[1:]:
+            parents[root(corner[0])] = root(triangle[0][0])
+    groups: dict[int, list[tuple[tuple[int, int, int], ...]]] = {}
+    for triangle in mesh.triangles:
+        groups.setdefault(root(triangle[0][0]), []).append(triangle)
+    sources = (mesh.positions, mesh.uvs, mesh.normals)
+    return [_compact(sources, faces, "component") for faces in sorted(groups.values(), key=len, reverse=True)]
+
+
+def centre(mesh: Mesh) -> list[float]:
+    """Return the bounding-box centre, independent of vertex duplication at UV or normal seams."""
+    low, high = bounds(mesh)
+    return [round((lo + hi) / 2, WELD_DECIMALS) for lo, hi in zip(low, high)]
+
+
+def animated_parts(mesh: Mesh, hand: str) -> dict[str, Mesh]:
+    """Identify the stock topology; otherwise leave the complete static body intact.
+
+    The three equally sized face buttons are PICO, X/A and Y/B in mirrored x order; MENU is
+    smaller. The shell, tracking ring and LED stay stationary. Face order is not significant.
+    """
+    parts = connected_parts(mesh)
+    if tuple(len(part.triangles) for part in parts) != PART_TRIANGLES:
+        return {}
+    sign = 1 if hand == "left" else -1
+    pico, primary, secondary = sorted(parts[5:8], key=lambda part: sign * centre(part)[0])
+    stationary = Mesh()
+    for part in (parts[0], parts[1], parts[9]):
+        offsets = len(stationary.positions), len(stationary.uvs), len(stationary.normals)
+        stationary.positions.extend(part.positions)
+        stationary.uvs.extend(part.uvs)
+        stationary.normals.extend(part.normals)
+        stationary.triangles.extend(
+            tuple((p + offsets[0], t + offsets[1], n + offsets[2]) for p, t, n in triangle)
+            for triangle in part.triangles
+        )
+    return {
+        "body": stationary,
+        "thumbstick": parts[2],
+        "grip_button": parts[3],
+        "trigger": parts[4],
+        "button_pico": pico,
+        f"button_{'x' if hand == 'left' else 'a'}": primary,
+        f"button_{'y' if hand == 'left' else 'b'}": secondary,
+        "button_menu": parts[8],
+    }
+
+
+def opening_rim(mesh: Mesh) -> list[tuple[float, float, float]]:
+    """Return the open mounting rim, welding seam vertices for edge incidence only."""
+    points = [(round(x, WELD_DECIMALS), round(y, WELD_DECIMALS), round(z, WELD_DECIMALS)) for x, y, z in mesh.positions]
+    edges: Counter = Counter()
+    faces = {tuple(points[p] for p, _, _ in triangle) for triangle in mesh.triangles}
+    for triangle in faces:
+        for a, b in zip(triangle, (*triangle[1:], triangle[0])):
+            if a != b:
+                edges[tuple(sorted((a, b)))] += 1
+    rim = {point for edge, count in edges.items() if count == 1 for point in edge}
+    return sorted(rim or set(points))
+
+
+def stick_pivot(mesh: Mesh) -> list[float]:
+    """Extrapolate the bearing centre from the two lowest circular cross-sections.
+
+    The stock mesh's exposed base is a frustum approximating the bearing. Its bottom edge
+    is above the rotation centre; using that edge as the pivot tips the base into the shell.
+    Equal sphere radii at both rings give the centre's height without vendor coordinates.
+    """
+    points = sorted({tuple(round(v, WELD_DECIMALS) for v in point) for point in mesh.positions})
+    heights = sorted({point[1] for point in points})
+    if len(heights) < BEARING_RINGS:
+        msg = "the thumbstick has no two bearing cross-sections"
+        raise ControllerModelError(msg)
+    x, _, z = centre(mesh)
+    y0, y1 = heights[:BEARING_RINGS]
+    radii = [
+        sum((p[0] - x) ** 2 + (p[2] - z) ** 2 for p in points if p[1] == y) / sum(p[1] == y for p in points)
+        for y in (y0, y1)
+    ]
+    y = (radii[1] + y1 * y1 - radii[0] - y0 * y0) / (2 * (y1 - y0))
+    return [x, round(y, WELD_DECIMALS), z]
+
+
+def grip_hinge(mesh: Mesh, hand: str) -> tuple[list[float], list[float]]:
+    """Find the mounting rim's long direction and hinge at its front end.
+
+    The grip pivots about the short direction of its tilted oval opening, not the aim z
+    axis. Fit the rim in y/z, then put the hinge at its minimum long-axis projection.
+    """
+    rim = opening_rim(mesh)
+    y, z = (sum(p[k] for p in rim) / len(rim) for k in (1, 2))
+    yy = sum((p[1] - y) ** 2 for p in rim)
+    zz = sum((p[2] - z) ** 2 for p in rim)
+    yz = sum((p[1] - y) * (p[2] - z) for p in rim)
+    angle = math.atan2(2 * yz, zz - yy) / 2
+    ly, lz = math.sin(angle), math.cos(angle)
+    offset = min((p[1] - y) * ly + (p[2] - z) * lz for p in rim)
+    pivot = [centre(mesh)[0], round(y + offset * ly, WELD_DECIMALS), round(z + offset * lz, WELD_DECIMALS)]
+    sign = 1 if hand == "left" else -1
+    return pivot, [0.0, -sign * lz, sign * ly]
+
+
+def motion_components(parts: dict[str, Mesh], hand: str, name: str) -> dict:
+    """Describe the stock parts using SteamVR's native motions, all in the original aim frame.
+
+    See ValveSoftware/openvr/wiki/Render-Model-Reference. Pivots come from the mounting geometry;
+    travel is nominal visual feedback. Input paths are the driver's existing PICO controls,
+    plus MENU/PICO aliases preserving its handed `system` mapping.
+    """
+    components: dict[str, dict[str, Any]] = {}
+    # SteamVR requires controller_button alongside pressed_path. The extra face button
+    # uses its own model bit instead of sharing the handed system button.
+    model_buttons = {"x": 7, "a": 7, "y": 1, "b": 1, "menu": EXTRA_MODEL_BUTTON, "pico": EXTRA_MODEL_BUTTON}
+    model_buttons["menu" if hand == "left" else "pico"] = 0
+    for part, mesh in parts.items():
+        components[part] = {
+            "filename": f"{name}_{part}.obj",
+            "component_local": {
+                "origin": [0.0, 0.0, 0.0] if part == "body" else centre(mesh),
+                "rotate_xyz": [0.0, 0.0, 0.0],
+            },
+        }
+        if part.startswith("button_"):
+            control = part.removeprefix("button_")
+            components[part]["motion"] = {
+                "type": "translate",
+                "pressed_path": f"/input/{control}/click",
+                "value_mapping": [0.0, BUTTON_TRAVEL_M],
+                "axis": [0.0, -1.0, 0.0],
+            }
+            components[part]["motion"]["controller_button"] = model_buttons[control]
+    trigger, grip, stick = (parts[part] for part in ("trigger", "grip_button", "thumbstick"))
+    # The trigger's hinge is at the upper front lip; bbox maxima combine unrelated rear/top points.
+    trigger_lip = min(trigger.positions, key=lambda point: point[2])
+    components["trigger"]["motion"] = {
+        "type": "rotate",
+        "controller_axis": 1,
+        "controller_axis_component": 0,
+        "trigger_path": "/input/trigger",
+        "value_mapping": [0.0, TRIGGER_TRAVEL_DEG],
+        "pivot": [centre(trigger)[0], trigger_lip[1], trigger_lip[2]],
+        "axis": [1.0, 0.0, 0.0],
+    }
+    grip_pivot, grip_axis = grip_hinge(grip, hand)
+    components["grip_button"]["motion"] = {
+        "type": "rotate",
+        "controller_axis": 2,
+        "controller_axis_component": 0,
+        "trigger_path": "/input/grip",
+        "value_mapping": [0.0, GRIP_TRAVEL_DEG],
+        "pivot": grip_pivot,
+        "axis": grip_axis,
+    }
+    components["thumbstick"]["motion"] = {
+        "type": "joystick",
+        "controller_axis": 0,
+        "component_path": "/input/joystick",
+        "center": stick_pivot(stick),
+        "rotate_xyz": [0.0, 0.0, 0.0],
+        "joystick_rotation_x": [STICK_TRAVEL_DEG, -STICK_TRAVEL_DEG],
+        "joystick_rotation_y": [STICK_TRAVEL_DEG, -STICK_TRAVEL_DEG],
+        "press_translate": [0.0, -BUTTON_TRAVEL_M, 0.0],
+    }
+    return components
 
 
 def bounds(mesh: Mesh) -> tuple[list[float], list[float]]:
@@ -324,10 +527,10 @@ def write_mtl(name: str) -> str:
     return f"newmtl {name}\nKa 0 0 0\nKd 1 1 1\nKs 0 0 0\nd 1\nillum 1\nmap_Kd {name}.png\n"
 
 
-def write_json(name: str, grip: dict | None, status: dict) -> str:
+def write_json(name: str, grip: dict | None, status: dict, parts: dict | None = None) -> str:
     """Return the render model's JSON: the body, the status panel and the pose components."""
     identity = {"component_local": {"origin": [0.0, 0.0, 0.0], "rotate_xyz": [0.0, 0.0, 0.0]}}
-    components = {"body": {"filename": f"{name}.obj", **identity}, "status": status}
+    components = {"body": {"filename": f"{name}.obj", **identity}, "status": status, **(parts or {})}
     for pose in ("tip", "aim", "openxr_aim"):
         components[pose] = identity
     if grip is not None:
@@ -365,7 +568,11 @@ def convert(
         (target / f"{name}.png").write_bytes(textures[hand])
         (target / f"{name}_status.obj").write_bytes((write_obj(status_mesh(powers[hand]), name)).encode("utf-8"))
         status = status_component(powers[hand], f"{name}_status.obj")
-        (target / f"{name}.json").write_bytes((write_json(name, grips.get(hand), status)).encode("utf-8"))
+        parts = animated_parts(mesh, hand)
+        for part, component_mesh in parts.items():
+            (target / f"{name}_{part}.obj").write_bytes(write_obj(component_mesh, name).encode("utf-8"))
+        components = motion_components(parts, hand, name) if parts else None
+        (target / f"{name}.json").write_bytes(write_json(name, grips.get(hand), status, components).encode("utf-8"))
     return worst
 
 

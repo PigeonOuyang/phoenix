@@ -7,6 +7,7 @@ import json
 import math
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,155 @@ def parse_written_obj(text: str) -> tuple[list[tuple[float, ...]], list[list[int
         elif words and words[0] == "f":
             faces.append([int(w.split("/")[0]) for w in words[1:]])
     return positions, faces
+
+
+def disconnected_mesh(sign: float = 1.0) -> controllermodel.Mesh:
+    """Synthetic tetrahedra with the stock topology's counts; no vendor vertices or texture data."""
+    mesh = controllermodel.Mesh()
+    counts = (2234, 650, 606, 224, 215, 160, 160, 160, 96, 14)
+    for part, count in enumerate(counts):
+        # The equal-count pieces have deliberately scrambled x order.
+        x = {5: 0.015, 6: -0.015, 7: 0.0}.get(part, part * 0.008 - 0.04)
+        y, z = part * 0.008 - 0.04, part * 0.01 - 0.05
+        points = [(x, y, z), (x + 0.004, y, z), (x, y + 0.004, z), (x, y, z + 0.004)]
+        offset = len(mesh.positions)
+        mesh.positions.extend((px * sign, py, pz) for px, py, pz in points)
+        mesh.uvs.extend([(0.0, 0.0), (0.1, 0.2), (0.3, 0.4), (0.5, 0.6)])
+        mesh.normals.extend([(1.0, 0.0, 0.0)] * 4)
+        faces = [(0, 1, 2), (0, 3, 1), (1, 3, 2), (2, 3, 0)]
+        mesh.triangles.extend(tuple((offset + v, offset + v, offset + v) for v in faces[i % 4]) for i in range(count))
+    return mesh
+
+
+def triangle_attributes(mesh: controllermodel.Mesh) -> Counter:
+    """Count triangles by all their corner attributes, independent of compacted index numbers."""
+    return Counter(
+        tuple((mesh.positions[p], mesh.uvs[t], mesh.normals[n]) for p, t, n in triangle) for triangle in mesh.triangles
+    )
+
+
+def mesh_obj(mesh: controllermodel.Mesh) -> str:
+    """Return a synthetic centimetre OBJ with a separate battery strip."""
+    lines = ["# This file uses centimeters as units.", "g Controller"]
+    lines += [f"v {x * 100} {y * 100} {z * 100}" for x, y, z in mesh.positions]
+    lines += [f"vt {u} {v}" for u, v in mesh.uvs]
+    lines += [f"vn {x} {y} {z}" for x, y, z in mesh.normals]
+    lines += ["f " + " ".join(f"{p + 1}/{t + 1}/{n + 1}" for p, t, n in tri) for tri in mesh.triangles]
+    position, normal = len(mesh.positions) + 1, len(mesh.normals) + 1
+    lines += ["v -1 1 1", "v 1 1 1", "v 0 1 2", "vn 0 1 1", "g Power"]
+    lines += [f"f {position}/1/{normal} {position + 1}/2/{normal} {position + 2}/3/{normal}"]
+    return "\n".join(lines) + "\n"
+
+
+class AnimationTests(unittest.TestCase):
+    def test_seam_welding_preserves_every_triangle_and_all_attributes(self):
+        mesh = disconnected_mesh()
+        p = mesh.triangles[0][0][0]
+        mesh.positions.append(mesh.positions[p])
+        mesh.uvs.append((0.9, 0.9))
+        mesh.normals.append((0.0, 1.0, 0.0))
+        mesh.triangles[0] = (
+            (len(mesh.positions) - 1, len(mesh.uvs) - 1, len(mesh.normals) - 1),
+            *mesh.triangles[0][1:],
+        )
+        parts = controllermodel.animated_parts(mesh, "left")
+        self.assertEqual(len(parts), 8)
+        self.assertEqual(len(parts["body"].triangles), 2898)
+        combined = Counter()
+        for part in parts.values():
+            combined.update(triangle_attributes(part))
+        self.assertEqual(combined, triangle_attributes(mesh))
+        self.assertEqual(sum(combined.values()), 4519)
+
+    def test_button_mapping_uses_mirrored_geometry_not_face_order(self):
+        for hand, sign, primary, secondary in (("left", 1, "x", "y"), ("right", -1, "a", "b")):
+            mesh = disconnected_mesh(sign)
+            mesh.triangles.reverse()
+            parts = controllermodel.animated_parts(mesh, hand)
+            xs = [
+                sign * controllermodel.centre(parts[part])[0]
+                for part in ("button_pico", f"button_{primary}", f"button_{secondary}")
+            ]
+            self.assertEqual(xs, sorted(xs))
+            components = controllermodel.motion_components(parts, hand, "synthetic")
+            for control in ("pico", "menu", primary, secondary):
+                motion = components[f"button_{control}"]["motion"]
+                self.assertEqual(motion["pressed_path"], f"/input/{control}/click")
+                self.assertEqual(motion["value_mapping"][0], 0.0)
+            self.assertEqual(components[f"button_{primary}"]["motion"]["controller_button"], 7)
+            self.assertEqual(components[f"button_{secondary}"]["motion"]["controller_button"], 1)
+            system = "menu" if hand == "left" else "pico"
+            extra = "pico" if hand == "left" else "menu"
+            self.assertEqual(components[f"button_{system}"]["motion"]["controller_button"], 0)
+            self.assertEqual(components[f"button_{extra}"]["motion"]["controller_button"], 8)
+            self.assertNotEqual(
+                components[f"button_{extra}"]["motion"]["controller_button"],
+                components[f"button_{system}"]["motion"]["controller_button"],
+            )
+            self.assertEqual(components["trigger"]["motion"]["trigger_path"], "/input/trigger")
+            self.assertEqual(components["grip_button"]["motion"]["trigger_path"], "/input/grip")
+            self.assertAlmostEqual(sum(v * v for v in components["grip_button"]["motion"]["axis"]), 1.0)
+            self.assertEqual(components["thumbstick"]["motion"]["component_path"], "/input/joystick")
+            self.assertEqual(components["thumbstick"]["motion"]["press_translate"], [0.0, -0.001, 0.0])
+
+    def test_stick_bearing_centre_is_below_the_exposed_bottom_ring(self):
+        mesh = controllermodel.Mesh()
+        centre = (0.02, 0.002, -0.03)
+        sphere_radius = 0.012
+        for y in (0.006, 0.009):
+            radius = math.sqrt(sphere_radius**2 - (y - centre[1]) ** 2)
+            mesh.positions.extend(
+                (centre[0] + radius * math.cos(i * math.tau / 16), y, centre[2] + radius * math.sin(i * math.tau / 16))
+                for i in range(16)
+            )
+        mesh.positions.extend(mesh.positions[:8])  # duplicated seam vertices
+        pivot = controllermodel.stick_pivot(mesh)
+        for actual, expected in zip(pivot, centre):
+            self.assertAlmostEqual(actual, expected, places=6)
+        self.assertLess(pivot[1], min(point[1] for point in mesh.positions))
+
+    def test_grip_hinge_follows_the_tilted_opening_and_mirrors_the_motion(self):
+        mesh = controllermodel.Mesh()
+        tilt = math.radians(35)
+        ly, lz = math.sin(tilt), math.cos(tilt)
+        for i in range(32):
+            angle = i * math.tau / 32
+            along, across = 0.02 * math.cos(angle), 0.008 * math.sin(angle)
+            mesh.positions.append((0.003, along * ly + across * lz, along * lz - across * ly))
+        left_pivot, left_axis = controllermodel.grip_hinge(mesh, "left")
+        right_pivot, right_axis = controllermodel.grip_hinge(mesh, "right")
+        self.assertEqual(left_pivot, right_pivot)
+        self.assertEqual(right_axis, [-v for v in left_axis])
+        self.assertAlmostEqual(left_axis[1], -lz, places=4)
+        self.assertAlmostEqual(left_axis[2], ly, places=4)
+        self.assertAlmostEqual(left_pivot[1], -0.02 * ly, places=6)
+        self.assertAlmostEqual(left_pivot[2], -0.02 * lz, places=6)
+
+    def test_unknown_topology_keeps_the_static_model(self):
+        mesh = disconnected_mesh()
+        mesh.triangles.pop()
+        self.assertEqual(controllermodel.animated_parts(mesh, "left"), {})
+
+    def test_conversion_keeps_the_texture_static_fallback_and_pose_components(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = model_dir(root, mesh_obj(disconnected_mesh()), mesh_obj(disconnected_mesh(-1)))
+            grip = {"position": [0.0, 0.01, 0.02], "orientation": [1.0, 0.0, 0.0, 0.0]}
+            controllermodel.convert(source, root / "out", {"left": grip, "right": grip})
+            for hand in ("left", "right"):
+                name = f"pico4_controller_{hand}"
+                target = root / "out" / name
+                components = json.loads((target / f"{name}.json").read_text())["components"]
+                self.assertEqual(components["body"]["filename"], f"{name}_body.obj")
+                self.assertEqual(len(parse_written_obj((target / f"{name}.obj").read_text())[1]), 4519)
+                self.assertEqual((target / f"{name}.png").read_bytes(), PNG)
+                self.assertEqual(components["grip"]["component_local"]["origin"], [0.0, 0.01, 0.02])
+                self.assertEqual(components["aim"]["component_local"]["origin"], [0.0, 0.0, 0.0])
+                self.assertEqual(components["status"]["visibility"], {"default": False})
+                self.assertEqual(sum("motion" in part for part in components.values()), 7)
+                self.assertTrue(
+                    all((target / part["filename"]).is_file() for part in components.values() if "filename" in part)
+                )
 
 
 class ControllerModelTests(unittest.TestCase):
