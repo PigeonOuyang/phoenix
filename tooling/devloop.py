@@ -20,7 +20,8 @@ results live in out/dev/.
   python -m overpressure dev recovery          into the maintenance stage 1, until dev normal
   python -m overpressure dev install [SYSTEM]  boot, super and data from it; starts the installed system
                                                (--on-headset: the headset builds the system image itself;
-                                               --packages DIR: with its changed recipes from that checkout)
+                                               --packages DIR: with its changed recipes from that checkout;
+                                               --stay-in-recovery: keep maintenance running without normal boot)
   python -m overpressure dev normal            from the maintenance stage 1 into the installed system
   python -m overpressure dev installed         connect to the running installed system
   python -m overpressure dev check             the acceptance checks on the installed system
@@ -41,15 +42,18 @@ import datetime as dt
 import hashlib
 import json
 import os
+import queue
 import re
+import shlex
 import subprocess
 import sys
 import tarfile
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Callable, TypeVar, cast
+from typing import IO, TYPE_CHECKING, Callable, TypeVar
 
 from devices.phoenix.kernel import recovery_image
 from overpressure.api.v1 import (
@@ -75,7 +79,7 @@ from overpressure.api.v1.fastboot import NOT_IN_FASTBOOT
 from overpressure.api.v1.fastboot import flash as flash_image
 from overpressure.api.v1.headset import manifest
 
-from . import FASTBOOT_MODE, GADGET, USB_MODES, device, localconfig, prefetch, stockfiles
+from . import FASTBOOT_MODE, GADGET, USB_MODES, assets, device, localconfig, prefetch, recovery_time, stockfiles
 from . import hardware_test as hw
 from .cycle import Headset, run
 
@@ -90,6 +94,7 @@ WORK = ROOT / "out" / "dev"
 HOST = "172.16.42.1"
 RUN_ID = "dev-loop"
 CONTACT = contract.CONTACT  # uptime of the last command (recovery-watch)
+TASK_HELPER = "/usr/libexec/pico4/task-state"
 #: What the headset echoes when it answers over SSH, and how long it may take to (a system that is still starting).
 REACHED = "reachable"
 REACH_SECONDS = 60.0
@@ -187,25 +192,6 @@ def source_commit() -> str:
     return _git("describe", "--always", "--dirty", "--abbrev=12") or _released("commit")[:12] or "unknown"
 
 
-class _Counting:
-    """A writable stream that counts what goes through it on a progress meter (the downloads sent)."""
-
-    def __init__(self, sink: IO[bytes], meter: progress.Meter) -> None:
-        """Count what is written to @p sink on @p meter."""
-        self.sink = sink
-        self.meter = meter
-
-    def write(self, data: bytes) -> int:
-        """Write @p data and count it."""
-        written = self.sink.write(data)
-        self.meter.add(len(data))
-        return written
-
-    def flush(self) -> None:
-        """Flush the sink."""
-        self.sink.flush()
-
-
 def source_date_epoch() -> int:
     """Return the build's time: this commit's (as the container build takes it), else headset.json's."""
     found = _git("log", "-1", "--format=%ct") or _released("date")
@@ -279,6 +265,7 @@ class Dev(Headset):
         edl_count: Callable[[], int] | None = None,
         *,
         out: Path = ROOT / "out",
+        task_process: Callable[..., subprocess.Popen] = subprocess.Popen,
     ) -> None:
         """Work on the headset @p settings name, with keys, images and results in @p work; tests pass fakes.
 
@@ -288,6 +275,10 @@ class Dev(Headset):
         super().__init__(settings, work, runner, clock, *([edl_count] if edl_count else []))
         self.work = work
         self.out = out
+        self._task_process = task_process
+        self._task_token = ""
+        self._task_active = 0
+        self._task_handoff = False
 
     #: The waits for the headset's own systems, over its USB network link.
     LINK_WAITS = frozenset({"stage-1 SSH", "installed system", "stage 1 or the installed system"})
@@ -316,6 +307,9 @@ class Dev(Headset):
         Every command renews the host contact: the dev image's maximum runtime counts from the
         last one (recovery-watch), so it ends abandoned sessions, not ones in use.
         """
+        if self._task_token and command.startswith("pico4-install "):
+            words = shlex.split(command)
+            command = shlex.join(["sh", TASK_HELPER, "run", self._task_token, *words[1:]])
         command = f"{{ cut -d. -f1 /proc/uptime > {CONTACT}; }} 2>/dev/null; {command}"
         return ssh.argv(self.s.ssh, self.work / "id_ed25519", self.work / "known_hosts", f"root@{HOST}", command)
 
@@ -324,6 +318,77 @@ class Dev(Headset):
     ) -> str:
         """Run @p command on the headset; return its output."""
         return self.run(self.ssh_argv(command), timeout, stdin=stdin, check=check)
+
+    @contextlib.contextmanager
+    def task_workflow(self, kind: str) -> Generator[None]:
+        """Hold the device lock, including between individual SSH commands."""
+        if self._task_token:
+            msg = "a device workflow is already active"
+            raise RuntimeError(msg)
+        token = uuid.uuid4().hex
+        argv = self.ssh_argv(shlex.join(["sh", TASK_HELPER, "hold", token, kind]))
+        with self._task_process(
+            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        ) as holder:
+            ready: queue.Queue[str] = queue.Queue()
+            output, controls = holder.stdout, holder.stdin
+            if output is None or controls is None:
+                holder.kill()
+                msg = "could not open the workflow control streams"
+                raise RuntimeError(msg)
+            threading.Thread(target=lambda: ready.put(output.readline()), daemon=True).start()
+            try:
+                line = ready.get(timeout=30)
+            except queue.Empty as exc:
+                holder.kill()
+                holder.wait()
+                msg = "the headset did not acknowledge its workflow lock"
+                raise RuntimeError(msg) from exc
+            if line.strip() != f"locked {token}":
+                holder.kill()
+                holder.wait()
+                msg = f"could not acquire the headset's workflow lock: {line.strip()}"
+                raise RuntimeError(msg)
+            self._task_token, self._task_active, self._task_handoff = token, 0, False
+            try:
+                yield
+            except BaseException:
+                if not self._task_handoff:
+                    with contextlib.suppress(Exception):
+                        self.task_finish("error", "Host workflow failed; see the original host and device logs")
+                raise
+            else:
+                if not self._task_handoff:
+                    self.task_finish("done", "Requested maintenance steps completed")
+            finally:
+                self._task_token = ""
+                controls.close()
+                try:
+                    holder.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    holder.kill()
+                    holder.wait()
+
+    def task_stage(self, index: int, state: str, detail: str) -> None:
+        """Publish a top-level device stage."""
+        if self._task_token:
+            self.ssh(shlex.join(["sh", TASK_HELPER, "stage", self._task_token, str(index), state, detail]), 30)
+            self._task_active = index
+
+    def task_phase(self, phase: str, state: str) -> None:
+        """Publish a host-observed boundary within the current stage."""
+        if self._task_token:
+            self.ssh(shlex.join(["sh", TASK_HELPER, "phase", self._task_token, phase, state]), 30)
+
+    def task_finish(self, status: str, detail: str) -> None:
+        """Publish the workflow's result while it still owns the lock."""
+        self.ssh(shlex.join(["sh", TASK_HELPER, "finish", self._task_token, status, detail]), 30)
+
+    def task_handoff(self, detail: str) -> None:
+        """Keep the task waiting when Recovery cannot observe what follows."""
+        if self._task_token:
+            self.task_finish("waiting", detail)
+            self._task_handoff = True
 
     def ssh_reboot(self, command: str) -> None:
         """Run @p command, which restarts the headset; the USB link goes down with it.
@@ -458,15 +523,19 @@ class Dev(Headset):
         if not (kernel / "Image.gz").exists():
             msg = f"missing {kernel / 'Image.gz'}: run python -m overpressure kernel fetch"
             raise ValueError(msg)
+        graphics = assets.from_backup(self.s.path("backup"), self.work / "assets", ("graphics-firmware",))[0]
         base = self.work / "dev-recovery-stock-kernel.img"
         base.write_bytes(recovery)
         try:
-            recovery = recovery_image.build(kernel, stock_path, base)
+            recovery = recovery_image.build(kernel, stock_path, base, gpu_firmware=graphics)
         finally:
             base.unlink()
         (self.work / "dev-recovery.img").write_bytes(recovery)
         info["recovery_sha256"] = hashlib.sha256(recovery).hexdigest()
         info["recovery_kernel"] = "valve"
+        info["recovery_gpu_firmware"] = {
+            name: hashlib.sha256((graphics / name).read_bytes()).hexdigest() for name in assets.GPU_FIRMWARE
+        }
         (self.work / "dev-image.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
         print(f"out/dev/dev-boot.img {info['boot_sha256']}")
         print(f"out/dev/dev-recovery.img {info['recovery_sha256']}")
@@ -507,9 +576,13 @@ class Dev(Headset):
         """
         backup = self.s.path("backup")
         archive = self.work / "stock-files.tar.gz"
+        self.task_phase("manifest", "running")
         want = stockfiles.manifest_sha256(stockfiles.from_backup(backup, archive, log=lambda _line: None))
         size = qualcomm.partition_size(backup, "userdata")
-        if self.ssh(f"pico4-install stock-hash --size {size}", 60).split()[-1:] == [want]:
+        held = self.ssh(f"pico4-install stock-hash --size {size}", 60).split()[-1:]
+        self.task_phase("manifest", "done")
+        if held == [want]:
+            self.task_phase("resources-keep", "skipped")
             print("userdata holds PICO OS's files already", flush=True)
             return
         digest = backups.digest(archive)
@@ -523,6 +596,7 @@ class Dev(Headset):
         if output.splitlines()[-1:] != [f"stock {want}"]:
             msg = "the headset did not confirm PICO OS's files"
             raise RuntimeError(msg)
+        self.task_phase("activate-assets", "done")
 
     def to_fastboot(self) -> None:
         """From PICO OS (ADB, once it is through with the MCU), stage 1 or stage 2 (SSH) into the bootloader.
@@ -599,6 +673,7 @@ class Dev(Headset):
             state = self.fastboot("oem", "device-info")
         except RuntimeError:
             state = self.fastboot("getvar", "unlocked")
+        state = re.sub(r"\bDeviceUnlocked=(true|false)\b", r"Device unlocked: \1", state, flags=re.IGNORECASE)
         if not android.unlocked(state):
             msg = "the bootloader is locked or its state is unknown"
             raise RuntimeError(msg)
@@ -702,9 +777,18 @@ class Dev(Headset):
                 print(
                     f"stage 1 authenticated, started from {name}, which holds an earlier dev image of this computer's"
                 )
+                self.sync_time()
                 return name
+        self.sync_time()
         print(f"stage 1 authenticated, started from {name}, which holds the dev image")
         return name
+
+    def sync_time(self) -> dict | None:
+        """Seed Recovery's clock through the authenticated link."""
+        result = recovery_time.synchronize(self.ssh)
+        if result:
+            print("Recovery synchronized with the host clock and current time zone offset", flush=True)
+        return result
 
     def check_battery(self) -> None:
         """Refuse partition writes on an almost empty battery that does not charge (power.headset_refusal)."""
@@ -742,7 +826,7 @@ class Dev(Headset):
         compressed = image.with_name(image.name + ".zst")
         return (compressed if compressed.is_file() else image).stat().st_size
 
-    def write_partition(
+    def write_partition(  # noqa: PLR0913  # partition, source, deadline and write policy
         self,
         name: str,
         image: Path,
@@ -750,6 +834,7 @@ class Dev(Headset):
         meter: progress.Meter | None = None,
         *,
         from_data: dict | None = None,
+        force: bool = False,
     ) -> None:
         """Stream an image to boot or super through the maintenance stage 1 (pico4-install).
 
@@ -759,6 +844,7 @@ class Dev(Headset):
         on the data partition (its record, with its path there: build_on_headset), and stage 1
         writes it from there.
         """
+        self.task_phase("inspect", "running")
         size = qualcomm.partition_size(self.s.path("backup"), name)
         recorded = from_data or self.image_record(image)
         if recorded is None:
@@ -772,10 +858,15 @@ class Dev(Headset):
         # An update rewrites only what changed: the partition may hold the image already. Its first
         # MiB tells a different image at once (the file system's superblock is in it); only a
         # match is worth hashing the whole image on the headset.
-        quick = self.ssh(f"pico4-install hash {name} {prefix_bytes}", 30).split()
+        quick = [] if force else self.ssh(f"pico4-install hash {name} {prefix_bytes}", 30).split()
         if quick[:1] == [prefix_sha]:
-            held = self.ssh(f"pico4-install hash {name} {digest['size']}", timeout).split()
+            self.task_phase("inspect", "done")
+            self.task_phase("existing-hash", "running")
+            label = " existing-hash" if self._task_token else ""
+            held = self.ssh(f"pico4-install hash {name} {digest['size']}{label}", timeout).split()
+            self.task_phase("existing-hash", "done")
             if held[:1] == [digest["sha256"]]:
+                self.task_phase("no-write", "skipped")
                 print(f"{name} holds {image.name} already", flush=True)
                 if meter is not None and from_data is None:
                     meter.add(self.stream_size(image))
@@ -867,16 +958,15 @@ class Dev(Headset):
         size = sum((cache / prefetch.local(path)).stat().st_size for path in prefetched)
         if prefetched:
             print(f"sending {len(prefetched)} downloaded files to the headset ({size >> 20} MiB)", flush=True)
-        meter = progress.Meter(size, lambda done, total: f"sending the downloads: {progress.mib(done, total)}")
+            # The tar includes source and headers and is compressed as it streams:
+            # its byte position cannot be divided by the sizes of just these files.
+            progress.say("sending source and prefetched downloads")
         read, write = os.pipe()
 
         def pump() -> None:
             try:
                 with os.fdopen(write, "wb") as sink:
-                    target = (
-                        cast("IO[bytes]", _Counting(sink, meter)) if prefetched else sink
-                    )  # tarfile only writes to it
-                    self.build_tree(target, packages, prefetched, cache)
+                    self.build_tree(sink, packages, prefetched, cache)
             except OSError:
                 pass  # the headset stopped reading: ssh's exit status says why
 
@@ -913,20 +1003,43 @@ class Dev(Headset):
                 f"ALL_PROXY={proxy} sh {base}/src/devices/phoenix/scripts/build-on-headset.sh {base}"
             )
             read = f"cat {base}/"
+        if stage1:
+            self.task_phase("source", "running")
+        prefetched = self.prefetched(stage1=stage1)
+        if stage1 and prefetched:
+            self.task_phase("source", "prefetch")
         argv = self.ssh_argv(command)
         argv[-2:-2] = ["-o", "ExitOnForwardFailure=yes", "-R", f"127.0.0.1:{HEADSET_PROXY_PORT}"]
-        prefetched = self.prefetched(stage1=stage1)
         print("building the system on the headset", flush=True)
         started = time.monotonic()
         with self.tree_stream(packages, prefetched) as tree:
             process.run_streamed(argv, HEADSET_BUILD_SECONDS, lambda line: print(line, flush=True), stdin=tree)
         print(f"built on the headset in {time.monotonic() - started:.0f} s", flush=True)
+        if stage1:
+            self.task_phase("record", "running")
         record = json.loads(self.ssh(f"{read}out/pico4-system.img.json", 30))
+        if (
+            not isinstance(record, dict)
+            or not all(type(record.get(key)) is int and record[key] > 0 for key in ("bytes", "prefix_bytes"))
+            or not all(
+                isinstance(record.get(key), str) and re.fullmatch(r"[0-9a-f]{64}", record[key])
+                for key in ("sha256", "prefix_sha256")
+            )
+            or record["prefix_bytes"] > record["bytes"]
+        ):
+            msg = "the headset did not return a valid image record"
+            raise ValueError(msg)
         record["path"] = f"{HEADSET_BUILD}/out/pico4-system.img.zst"
         # dev installed and dev check find the build by its manifest (out/*/pico4-userspace.manifest.json).
         manifest = ROOT / "out" / "headset" / "pico4-userspace.manifest.json"
         manifest.parent.mkdir(parents=True, exist_ok=True)
-        manifest.write_text(self.ssh(f"{read}out/pico4-userspace.manifest.json", 30) + "\n", encoding="utf-8")
+        received = self.ssh(f"{read}out/pico4-userspace.manifest.json", 30)
+        if not isinstance(json.loads(received), dict):
+            msg = "the headset did not return a valid userspace manifest"
+            raise ValueError(msg)  # noqa: TRY004  # valid JSON with an invalid manifest value
+        manifest.write_text(received + "\n", encoding="utf-8")
+        if stage1:
+            self.task_phase("record", "done")
         return record
 
     def install_inputs(
@@ -958,17 +1071,22 @@ class Dev(Headset):
             return None
         return self.build_on_headset(stage1=False, packages=packages)
 
-    def format_userdata(self, *, always: bool) -> None:
+    def format_userdata(self, *, always: bool) -> bool:
         """Format userdata from the maintenance stage 1 when it holds no data yet, or @p always."""
+        self.task_phase("label", "running")
         status = self.ssh("pico4-install status", 30)
+        self.task_phase("label", "done")
         if always or "data: pico4-data" not in status.splitlines():
             size = qualcomm.partition_size(self.s.path("backup"), "userdata")
             progress.say("formatting userdata", INSTALL_WRITES)
             if self.ssh(f"pico4-install format-data --size {size}", 900).splitlines()[-1:] != ["formatted userdata"]:
                 msg = "formatting userdata failed"
                 raise RuntimeError(msg)
+            return True
+        self.task_phase("keep", "skipped")
+        return False
 
-    def install(
+    def install(  # noqa: PLR0913, PLR0915  # independent CLI switches and their ordered receipts
         self,
         system: Path = SYSTEM,
         *,
@@ -976,6 +1094,8 @@ class Dev(Headset):
         boot: Path | None = None,
         on_headset: bool = False,
         packages: Path | None = None,
+        stay_in_recovery: bool = False,
+        rewrite_images: bool = False,
     ) -> None:
         """Install from the maintenance stage 1, then start the installed system.
 
@@ -1004,25 +1124,65 @@ class Dev(Headset):
         if self.connect() != "recovery":
             msg = "install runs from the maintenance stage 1 in recovery (python -m overpressure dev recovery)"
             raise RuntimeError(msg)
-        device.check_panel(self.ssh("cat /proc/cmdline", 10))
-        self.check_battery()
-        # From here on PICO OS's system is gone until "dev restore" writes it back.
-        (self.work / INSTALLED).write_text(
-            json.dumps(
-                {
-                    "system": str(system),
-                    "since": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-                }
+        recovery_build = on_headset and built is None
+        with self.task_workflow("headset" if recovery_build else "host"):
+            device.check_panel(self.ssh("cat /proc/cmdline", 10))
+            self.check_battery()
+            if stay_in_recovery:
+                self.require_recovery_bootmode()
+            self.task_phase("check", "done")
+            self.task_stage(0, "done", "Inputs, Recovery, display and battery checks passed")
+            (self.work / INSTALLED).write_text(
+                json.dumps(
+                    {"system": str(system), "since": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
+                )
+                + "\n",
+                encoding="utf-8",
             )
-            + "\n",
-            encoding="utf-8",
-        )
-        if on_headset and built is None:
-            # The build lives on the data partition: formatted first, then built there by stage 1.
-            self.format_userdata(always=format_data)
-            format_data = False
-            built = self.build_on_headset(stage1=True, packages=packages)
-        # The writes are most of the install: up to WRITES of its progress, the short steps after them the rest.
+            if recovery_build:
+                self.task_stage(1, "running", "Preparing user data for the headset build")
+                formatted = self.format_userdata(always=format_data)
+                self.task_stage(1, "done" if formatted else "skipped", "Build data is ready")
+                format_data = False
+                self.task_stage(2, "running", "Building on the headset")
+                built = self.build_on_headset(stage1=True, packages=packages)
+                self.task_stage(2, "done", "Headset build returned an image record")
+            offset = 2 if recovery_build else 0
+            self.install_partitions(boot, system, built, offset, force=rewrite_images)
+            self.task_stage(3 + offset, "running", "Preparing or checking user data")
+            formatted = self.format_userdata(always=format_data)
+            self.task_stage(
+                3 + offset, "done" if formatted else "skipped", "pico4-data initialized or verified for reuse"
+            )
+            self.task_stage(4 + offset, "running", "Writing public keys and installation ID")
+            self.task_phase("keys", "running")
+            progress.say("adding this computer's key", INSTALL_WRITES + 0.03)
+            self.write_keys()
+            self.task_phase("keys-ok", "done")
+            self.task_stage(4 + offset, "done", "Device verified the public keys and installation ID")
+            self.task_stage(5 + offset, "running", "Checking or writing backed-up system assets")
+            progress.say("PICO OS's files from the backup", INSTALL_WRITES + 0.04)
+            self.write_stock()
+            self.task_stage(5 + offset, "done", "Device verified the system asset manifest")
+            if stay_in_recovery:
+                self.task_stage(6 + offset, "running", "Checking that Recovery remains selected")
+                self.task_phase("retain", "running")
+                self.require_recovery_bootmode()
+                self.task_phase("retain", "done")
+                self.task_stage(
+                    6 + offset, "skipped", "Readback confirms Recovery remains selected; SteamOS did not start"
+                )
+                print("Installation writes verified; staying in Recovery without booting SteamOS.", flush=True)
+            else:
+                self.task_stage(6 + offset, "running", "Clearing the Recovery request and reading back misc")
+                progress.say("starting the installed system", INSTALL_WRITES + 0.05)
+                self.normal()
+        if not stay_in_recovery:
+            progress.say("removing the build's files", INSTALL_WRITES + 0.08)
+            self.remove_build()
+
+    def install_partitions(self, boot: Path, system: Path, built: dict | None, offset: int, *, force: bool) -> None:
+        """Keep the legacy CLI send meter separate from the headset's block I/O."""
         sizes = {"boot": self.stream_size(boot), "super": 0 if built else self.stream_size(system)}
         current = {"name": "boot"}
         meter = progress.Meter(
@@ -1030,18 +1190,17 @@ class Dev(Headset):
             lambda done, total: f"writing {current['name']}: {progress.mib(done, total)}",
             end=INSTALL_WRITES,
         )
-        for name, image, timeout in (("boot", boot, 120), ("super", system, 1800)):
+        for index, (name, image, timeout) in enumerate((("boot", boot, 120), ("super", system, 1800)), 1):
             current["name"] = name
-            self.write_partition(name, image, timeout, meter, from_data=built if name == "super" else None)
-        self.format_userdata(always=format_data)
-        progress.say("adding this computer's key", INSTALL_WRITES + 0.03)
-        self.write_keys()
-        progress.say("PICO OS's files from the backup", INSTALL_WRITES + 0.04)
-        self.write_stock()
-        progress.say("starting the installed system", INSTALL_WRITES + 0.05)
-        self.normal()
-        progress.say("removing the build's files", INSTALL_WRITES + 0.08)
-        self.remove_build()
+            self.task_stage(index + offset, "running", f"Checking or writing {name}; waiting for device readback")
+            self.write_partition(name, image, timeout, meter, from_data=built if name == "super" else None, force=force)
+            self.task_stage(index + offset, "done", f"Device readback verified {name} by SHA-256")
+
+    def require_recovery_bootmode(self) -> None:
+        """Require the persistent Recovery selection without changing misc."""
+        if "bootmode: boot-recovery" not in self.ssh("pico4-install status", 30).splitlines():
+            msg = "--stay-in-recovery requires the persistent boot-recovery selection in misc"
+            raise RuntimeError(msg)
 
     def remove_build(self) -> None:
         """Remove the headset's build folder, once the installed system runs: the install leaves nothing of it.
@@ -1077,6 +1236,10 @@ class Dev(Headset):
         if self.ssh("pico4-install bootmode normal", 30).splitlines()[-1:] != ["bootmode normal"]:
             msg = "could not clear the recovery request in misc"
             raise RuntimeError(msg)
+        self.task_phase("misc-check", "done")
+        self.task_phase("handoff", "waiting")
+        self.task_stage(self._task_active, "waiting", "Readback confirms normal boot in misc")
+        self.task_handoff("About to leave Recovery; the host still needs to verify the next boot")
         (self.work / "state.json").unlink(missing_ok=True)
         self.ssh_reboot("pico4-reboot")
         # Only the installed system's systemd passes wait_installed: no fixed wait for the reboot.
@@ -1385,7 +1548,7 @@ class Dev(Headset):
         (self.work / "state.json").unlink(missing_ok=True)
         print(f"PICO OS: {self.wait_pico_os()}")
 
-    def restore_installed(self, only: str | None = None) -> None:
+    def restore_installed(self, only: str | None = None) -> None:  # noqa: C901, PLR0912  # optional restore phases
         """Bring back PICO OS as the backup has it, from the maintenance stage 1.
 
         Super and boot are written back (checked against the manifest, read back), userdata and
@@ -1407,15 +1570,33 @@ class Dev(Headset):
             # A fresh maintenance boot from wherever the headset is: the installed system, the
             # maintenance stage 1 or fastboot (connect alone waits for a stage 1 that may not run).
             self.recovery()
-        if "system" in parts:
-            self.check_battery()
-            self.write_partition("super", images["super"], 3600)
-            self.write_partition("boot", images["boot"], 300)
-        if "data" in parts:
-            self.wipe_data()
+        if parts != ("recovery",):
+            with self.task_workflow("restore"):
+                self.check_battery()
+                self.task_stage(0, "done", "Requested backup and battery checks passed")
+                if "system" in parts:
+                    for index, name, timeout in ((1, "super", 3600), (2, "boot", 300)):
+                        self.task_stage(index, "running", f"Restoring {name}; waiting for device readback")
+                        self.write_partition(name, images[name], timeout)
+                        self.task_stage(index, "done", f"Device readback verified {name}")
+                else:
+                    for index in (1, 2):
+                        self.task_stage(index, "skipped", "System restore was not requested")
+                if "data" in parts:
+                    self.wipe_data()
+                else:
+                    for index in (3, 4, 5):
+                        self.task_stage(index, "skipped", "Data preparation was not requested")
+                if "recovery" in parts:
+                    self.task_stage(6, "waiting", "About to enter host fastboot; this UI cannot observe flashing")
+                    self.task_handoff("Device restore steps have receipts; the host will continue restoring recovery")
+                    self.restore_partition("recovery")
+                else:
+                    self.task_stage(6, "skipped", "Recovery restore was not requested")
         if "recovery" not in parts:
             return
-        self.restore_partition("recovery")
+        if parts == ("recovery",):
+            self.restore_partition("recovery")
         (self.work / INSTALLED).unlink(missing_ok=True)
         (self.work / "state.json").unlink(missing_ok=True)
         print(
@@ -1426,14 +1607,18 @@ class Dev(Headset):
     def wipe_data(self) -> None:
         """Wipe userdata and metadata, then clear misc's recovery request (the restore's data part)."""
         backup = self.s.path("backup")
-        for name in ("userdata", "metadata"):
+        for index, name in enumerate(("userdata", "metadata"), 3):
+            self.task_stage(index, "running", f"Preparing {name}; zeroing and reading back only the existing range")
             size = qualcomm.partition_size(backup, name)
             if self.ssh(f"pico4-install wipe {name} --size {size}", 300).splitlines()[-1:] != [f"wiped {name}"]:
                 msg = f"wiping {name} failed"
                 raise RuntimeError(msg)
+            self.task_stage(index, "done", f"Device readback verified the existing zeroed range of {name}")
+        self.task_stage(5, "running", "Clearing the Recovery request and reading back misc")
         if self.ssh("pico4-install bootmode normal", 30).splitlines()[-1:] != ["bootmode normal"]:
             msg = "could not clear the recovery request in misc"
             raise RuntimeError(msg)
+        self.task_stage(5, "done", "Readback confirms normal boot in misc")
 
     def maintenance_running(self) -> bool:
         """Tell whether this computer's maintenance stage 1 answers now, started from recovery and authenticated."""
@@ -1518,6 +1703,12 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901, PLR0912, PLR0915 
         "--on-headset", action="store_true", help="the headset builds the system image itself, no build here"
     )
     inst.add_argument(
+        "--stay-in-recovery", action="store_true", help="require and keep misc's Recovery selection; do not reboot"
+    )
+    inst.add_argument(
+        "--rewrite-images", action="store_true", help="rewrite and read back boot and super even if equal"
+    )
+    inst.add_argument(
         "--packages",
         type=Path,
         metavar="DIR",
@@ -1561,6 +1752,8 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901, PLR0912, PLR0915 
                 boot=args.boot,
                 on_headset=args.on_headset,
                 packages=args.packages,
+                stay_in_recovery=args.stay_in_recovery,
+                rewrite_images=args.rewrite_images,
             )
         elif args.command == "boot-image":
             print(dev.boot_image())

@@ -13,6 +13,7 @@ OP_USB_MANUFACTURER=pico4
 OP_USB_PRODUCT="PICO 4 Linux"
 OP_REBOOT=pico4-reboot
 OP_PROBE=pico4-probe
+OP_RECOVERY_UI=/usr/bin/pico4-recovery-ui
 # Its data partition's file system label and first-boot marker: existing installs carry them (preinit, the writer).
 OP_DATA_LABEL=pico4-data
 OP_DATA_MARKER=.pico4-initialized

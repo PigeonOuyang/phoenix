@@ -16,6 +16,16 @@ the headers.
 `prebuilt/aarch64/pico4-reboot` is built from `src/reboot/` (Unlicense). Both prebuilt programs are
 freestanding and link no library.
 
+## Recovery icon resources
+
+| Path | License | Source |
+| --- | --- | --- |
+| `src/recovery-ui/breeze/original/`, `src/recovery-ui/breeze/atlas.png` | LGPL-3.0-or-later | KDE Breeze Icons, commit `744be60c294e79719c7506ead95f1f103e539993`; [notice and original-file manifest](src/recovery-ui/breeze/NOTICE.md) |
+| `src/recovery-ui/material-symbols/`, `src/recovery-ui/material_paths.hpp` | Apache-2.0 | Google Material Symbols, commit `10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7`; [license](src/recovery-ui/material-symbols/LICENSE) |
+
+The generated Breeze atlas index contains the project's lookup metadata under the Unlicense;
+the icon artwork and its original licenses are retained.
+
 ## Not in the repository
 
 The build downloads and builds other projects (Valve's packages, Alpine's packages and others) and

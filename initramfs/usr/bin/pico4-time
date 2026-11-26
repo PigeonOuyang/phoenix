@@ -1,0 +1,37 @@
+#!/bin/sh
+# SPDX-License-Identifier: Unlicense
+# UTC and the PC's observed local offset, supplied through the authenticated SSH
+# connection. Only the running clock and /run are changed; never write the RTC.
+set -eu
+[ "$#" = 2 ] || { echo "usage: pico4-time EPOCH OFFSET_SECONDS" >&2; exit 2; }
+epoch=$1
+offset=$2
+case "$epoch" in ''|*[!0-9]*) exit 2 ;; esac
+case "$offset" in -*) digits=${offset#-} ;; *) digits=$offset ;; esac
+case "$digits" in ''|*[!0-9]*) exit 2 ;; esac
+[ "${#epoch}" -le 10 ] && [ "${#digits}" -le 5 ] || exit 2
+case "$epoch" in 0*) exit 2 ;; esac
+case "$digits" in 0?*) exit 2 ;; esac
+[ "$epoch" -ge 1577836800 ] && [ "$epoch" -lt 4102444800 ] || exit 2
+[ "$offset" -ge -50400 ] && [ "$offset" -le 50400 ] || exit 2
+
+umask 077
+mkdir -p /run/overpressure
+exec 9>/run/overpressure/time.lock
+flock -x 9
+boot=$(cat /proc/sys/kernel/random/boot_id)
+case "$boot" in ''|*[!a-f0-9-]*) exit 1 ;; esac
+date -u -s "@$epoch" >/dev/null
+# POSIX TZ signs are the reverse of UTC offsets. This is the host's current
+# offset, not a guessed IANA zone or a promise about future DST transitions.
+if [ "$offset" -ge 0 ]; then sign=-; magnitude=$offset; else sign=+; magnitude=$((-offset)); fi
+hours=$((magnitude / 3600))
+minutes=$((magnitude % 3600 / 60))
+seconds=$((magnitude % 60))
+printf 'UTC%s%02d:%02d:%02d\n' "$sign" "$hours" "$minutes" "$seconds" > /run/overpressure/host-timezone.tmp
+mv /run/overpressure/host-timezone.tmp /run/overpressure/host-timezone
+read -r uptime _idle < /proc/uptime
+printf '{"source":"host","boot_id":"%s","epoch_seconds":%s,"offset_seconds":%s,"synchronized_uptime":%s}\n' \
+    "$boot" "$epoch" "$offset" "$uptime" > /run/overpressure/time-source.json.tmp
+mv /run/overpressure/time-source.json.tmp /run/overpressure/time-source.json
+cat /run/overpressure/time-source.json

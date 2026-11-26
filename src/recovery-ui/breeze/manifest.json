@@ -1,0 +1,1112 @@
+{
+  "upstream": "KDE/breeze-icons",
+  "commit": "744be60c294e79719c7506ead95f1f103e539993",
+  "license": "LGPL-3.0-or-later",
+  "icons": [
+    {
+      "key": "back",
+      "requested": "icons/actions/16/go-previous.svg",
+      "resolved": "icons/actions/16/go-previous.svg",
+      "aliasChain": [
+        "icons/actions/16/go-previous.svg"
+      ],
+      "sha256": "cf81f77937e593ab36cfd7bc2acf6ec5ed536d466d5211e0ec78c8ca4d5527ad",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/16/go-previous.svg",
+      "canvas": "0 0 16 16",
+      "roles": []
+    },
+    {
+      "key": "next",
+      "requested": "icons/actions/16/go-next.svg",
+      "resolved": "icons/actions/16/go-next.svg",
+      "aliasChain": [
+        "icons/actions/16/go-next.svg"
+      ],
+      "sha256": "273f597d2818051c282732f5edc12e1bda95479ee606092b85a8fd5858932d75",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/16/go-next.svg",
+      "canvas": "0 0 16 16",
+      "roles": []
+    },
+    {
+      "key": "up",
+      "requested": "icons/actions/16/go-up.svg",
+      "resolved": "icons/actions/16/go-up.svg",
+      "aliasChain": [
+        "icons/actions/16/go-up.svg"
+      ],
+      "sha256": "782125311c487d7e3108f03b5277ae35d6e51d968e308056e015be21d97417b9",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/16/go-up.svg",
+      "canvas": "0 0 16 16",
+      "roles": []
+    },
+    {
+      "key": "down",
+      "requested": "icons/actions/16/go-down.svg",
+      "resolved": "icons/actions/16/go-down.svg",
+      "aliasChain": [
+        "icons/actions/16/go-down.svg"
+      ],
+      "sha256": "34f4969b13f4c38db85c369046422b50b0a9d2ca7544b1ef7b2768dc891ea32f",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/16/go-down.svg",
+      "canvas": "0 0 16 16",
+      "roles": []
+    },
+    {
+      "key": "ok",
+      "requested": "icons/actions/16/dialog-ok.svg",
+      "resolved": "icons/actions/16/dialog-ok-apply.svg",
+      "aliasChain": [
+        "icons/actions/16/dialog-ok.svg",
+        "icons/actions/16/dialog-ok-apply.svg"
+      ],
+      "sha256": "ed15c2b46dd3a7437989131446ca5f01d5372173b6b404f7bb02b0c41c73ffd5",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/16/dialog-ok-apply.svg",
+      "canvas": "0 0 16 16",
+      "roles": []
+    },
+    {
+      "key": "cancel",
+      "requested": "icons/actions/16/dialog-cancel.svg",
+      "resolved": "icons/actions/16/dialog-cancel.svg",
+      "aliasChain": [
+        "icons/actions/16/dialog-cancel.svg"
+      ],
+      "sha256": "faf2d6d05cd0730f150807980a37a4e9c31c5a46e06767886164bb7bb1ea5012",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/16/dialog-cancel.svg",
+      "canvas": "0 0 16 16",
+      "roles": []
+    },
+    {
+      "key": "refresh",
+      "requested": "icons/actions/22/view-refresh.svg",
+      "resolved": "icons/actions/22/view-refresh.svg",
+      "aliasChain": [
+        "icons/actions/22/view-refresh.svg"
+      ],
+      "sha256": "f49d3932353ddd5a2585a124b3ed56946f0365381de1113b62fcb4a8a79452b8",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/view-refresh.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "power",
+      "requested": "icons/actions/22/system-shutdown.svg",
+      "resolved": "icons/actions/22/system-shutdown.svg",
+      "aliasChain": [
+        "icons/actions/22/system-shutdown.svg"
+      ],
+      "sha256": "bde4efe24e25e7b02f0341ba6d1a062741c2f55af430f7bae46cc601127a55ce",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/system-shutdown.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "info",
+      "requested": "icons/status/22/dialog-information.svg",
+      "resolved": "icons/status/22/data-information.svg",
+      "aliasChain": [
+        "icons/status/22/dialog-information.svg",
+        "icons/status/22/data-information.svg"
+      ],
+      "sha256": "ce8bfb1be8094e77a0f7c6331dec86e9e00ca9b901cf4516d8e95bf8c6132aac",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/data-information.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "var(--icon-cutout, #24272c)"
+      ]
+    },
+    {
+      "key": "warning",
+      "requested": "icons/status/22/dialog-warning.svg",
+      "resolved": "icons/status/22/data-warning.svg",
+      "aliasChain": [
+        "icons/status/22/dialog-warning.svg",
+        "icons/status/22/data-warning.svg"
+      ],
+      "sha256": "d480b7cafc3b8b9de0792748e8cf8190eced6109d247c667c90b02f736a7d725",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/data-warning.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NeutralText",
+        "var(--icon-cutout, #24272c)"
+      ]
+    },
+    {
+      "key": "error",
+      "requested": "icons/status/22/dialog-error.svg",
+      "resolved": "icons/status/22/data-error.svg",
+      "aliasChain": [
+        "icons/status/22/dialog-error.svg",
+        "icons/status/22/data-error.svg"
+      ],
+      "sha256": "b9dfab9eaf3b6d591470cde5af8e8d01014aec3ff0b554dc6ef6a8bd423760b6",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/data-error.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NegativeText",
+        "var(--icon-cutout, #24272c)"
+      ]
+    },
+    {
+      "key": "check",
+      "requested": "icons/status/22/dialog-positive.svg",
+      "resolved": "icons/status/22/data-success.svg",
+      "aliasChain": [
+        "icons/status/22/dialog-positive.svg",
+        "icons/status/22/data-success.svg"
+      ],
+      "sha256": "e1e00d3bdf1572906698976b62cc571b479ca276e2f4498986806e4c0359e127",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/data-success.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-PositiveText",
+        "var(--icon-cutout, #24272c)"
+      ]
+    },
+    {
+      "key": "storage",
+      "requested": "icons/devices/22/drive-harddisk.svg",
+      "resolved": "icons/devices/22/drive-harddisk.svg",
+      "aliasChain": [
+        "icons/devices/22/drive-harddisk.svg"
+      ],
+      "sha256": "9b2b27ddffd3191e9e0f34d6c0b8292fa85834eac9b07b8b05da65bbb4ade5d8",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/devices/22/drive-harddisk.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "host",
+      "requested": "icons/devices/22/computer.svg",
+      "resolved": "icons/devices/22/computer.svg",
+      "aliasChain": [
+        "icons/devices/22/computer.svg"
+      ],
+      "sha256": "872c0e6606f32e3769a83bad938a55ade0f2e624d5a33aa468e8c9246c8f03bf",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/devices/22/computer.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "tools",
+      "requested": "icons/actions/22/tools.svg",
+      "resolved": "icons/actions/22/tools.svg",
+      "aliasChain": [
+        "icons/actions/22/tools.svg"
+      ],
+      "sha256": "1f8f8e8ed67ecdbae9693f3c48e9213767718eb66d6bd2678907df214a9f2970",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/tools.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "report",
+      "requested": "icons/actions/22/document-properties.svg",
+      "resolved": "icons/actions/22/document-properties.svg",
+      "aliasChain": [
+        "icons/actions/22/document-properties.svg"
+      ],
+      "sha256": "16f8002d435c4fe13ed180f33810e7bc44c69cfcefde4855fc65430ccc075f26",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/document-properties.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "log",
+      "requested": "icons/actions/22/document-preview.svg",
+      "resolved": "icons/actions/22/document-preview-archive.svg",
+      "aliasChain": [
+        "icons/actions/22/document-preview.svg",
+        "icons/actions/22/document-preview-archive.svg"
+      ],
+      "sha256": "f79154e7801c1664501e3b86e8a7a536a2fd35e4ca92320903bfaca30b72f007",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/document-preview-archive.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "stereo",
+      "requested": "icons/actions/22/view-split-left-right.svg",
+      "resolved": "icons/actions/22/view-split-left-right.svg",
+      "aliasChain": [
+        "icons/actions/22/view-split-left-right.svg"
+      ],
+      "sha256": "6f1fc1c72ce20730c71b40aaff3a3a4306f57e502b4c589ecf719b01f80164bc",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/view-split-left-right.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "settings",
+      "requested": "icons/actions/22/configure.svg",
+      "resolved": "icons/actions/22/configure.svg",
+      "aliasChain": [
+        "icons/actions/22/configure.svg"
+      ],
+      "sha256": "36ef6b5e2b063b4982b0144c14cea0fe818d9d248a9686154fa9687f3c9af1d2",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/configure.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "status",
+      "requested": "icons/actions/22/view-visible.svg",
+      "resolved": "icons/actions/22/view-visible.svg",
+      "aliasChain": [
+        "icons/actions/22/view-visible.svg"
+      ],
+      "sha256": "b5f0bc1cac9fa9fa643812739bd6bce4df45f6e97f7cfc10753949d5bcc42759",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/view-visible.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "clock",
+      "requested": "icons/actions/22/smallclock.svg",
+      "resolved": "icons/actions/22/appointment-new.svg",
+      "aliasChain": [
+        "icons/actions/22/smallclock.svg",
+        "icons/actions/22/appointment-new.svg"
+      ],
+      "sha256": "f83e4aecab395a40dafcb267e81da59d8ef407ff55333b1efb74ca35b927fd29",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/appointment-new.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "calendar",
+      "requested": "icons/actions/22/view-calendar.svg",
+      "resolved": "icons/actions/22/view-calendar.svg",
+      "aliasChain": [
+        "icons/actions/22/view-calendar.svg"
+      ],
+      "sha256": "f42325bd9e9f3cc0c04955d92a2a03cd0b200209b7328ca43cec7ba44e2e8315",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/view-calendar.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "hour",
+      "requested": "icons/actions/22/format-list-ordered.svg",
+      "resolved": "icons/actions/22/format-list-ordered.svg",
+      "aliasChain": [
+        "icons/actions/22/format-list-ordered.svg"
+      ],
+      "sha256": "d89df0fe799208df710f39c01663155b51eb7861e7d3426e97fe3fd1947b425f",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/format-list-ordered.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "seconds",
+      "requested": "icons/actions/22/chronometer.svg",
+      "resolved": "icons/actions/22/chronometer.svg",
+      "aliasChain": [
+        "icons/actions/22/chronometer.svg"
+      ],
+      "sha256": "834489c637fcb7806d74f2ef46bcab2ec4d66d111d1bd0f0d60bb60536bde6ba",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/chronometer.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "dateformat",
+      "requested": "icons/actions/22/view-calendar-day.svg",
+      "resolved": "icons/actions/22/view-calendar.svg",
+      "aliasChain": [
+        "icons/actions/22/view-calendar-day.svg",
+        "icons/actions/22/view-calendar.svg"
+      ],
+      "sha256": "f42325bd9e9f3cc0c04955d92a2a03cd0b200209b7328ca43cec7ba44e2e8315",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/view-calendar.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "order",
+      "requested": "icons/actions/22/view-sort-ascending.svg",
+      "resolved": "icons/actions/22/view-sort-ascending.svg",
+      "aliasChain": [
+        "icons/actions/22/view-sort-ascending.svg"
+      ],
+      "sha256": "70c78cd374720dfe0e167a64bcf18fb524f0299602c493733e632493d12682c4",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/view-sort-ascending.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "zone",
+      "requested": "icons/actions/22/globe.svg",
+      "resolved": "icons/actions/22/globe.svg",
+      "aliasChain": [
+        "icons/actions/22/globe.svg"
+      ],
+      "sha256": "1f0d88001f148b5283ba2e9cca65f40a6e66a4ca98424181a3d7f3c7d0cb836f",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/globe.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "reboot",
+      "requested": "icons/actions/22/system-reboot.svg",
+      "resolved": "icons/actions/22/view-refresh.svg",
+      "aliasChain": [
+        "icons/actions/22/system-reboot.svg",
+        "icons/actions/22/view-refresh.svg"
+      ],
+      "sha256": "f49d3932353ddd5a2585a124b3ed56946f0365381de1113b62fcb4a8a79452b8",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/view-refresh.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "language",
+      "requested": "icons/preferences/22/preferences-desktop-locale-symbolic.svg",
+      "resolved": "icons/preferences/22/preferences-desktop-locale-symbolic.svg",
+      "aliasChain": [
+        "icons/preferences/22/preferences-desktop-locale-symbolic.svg"
+      ],
+      "sha256": "70050b10dd03e0660d68078bf9ad1649114e7bef92cfcf480630a7a1608b88f5",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/preferences/22/preferences-desktop-locale-symbolic.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "keys",
+      "requested": "icons/actions/22/configure-shortcuts.svg",
+      "resolved": "icons/devices/22/input-keyboard.svg",
+      "aliasChain": [
+        "icons/actions/22/configure-shortcuts.svg",
+        "icons/devices/22/input-keyboard.svg"
+      ],
+      "sha256": "ed5dc7639d6ba347f7f11cfd9045069202ad7fbb68f7fbb25c1cb88aecf86c79",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/devices/22/input-keyboard.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "swap",
+      "requested": "icons/actions/22/object-flip-vertical.svg",
+      "resolved": "icons/actions/22/object-flip-vertical.svg",
+      "aliasChain": [
+        "icons/actions/22/object-flip-vertical.svg"
+      ],
+      "sha256": "148c73ed22b4f9cd939dabca395715fd2791b1bf5d257c5230638ee4de9b1482",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/object-flip-vertical.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "save",
+      "requested": "icons/actions/22/document-save.svg",
+      "resolved": "icons/actions/22/document-save.svg",
+      "aliasChain": [
+        "icons/actions/22/document-save.svg"
+      ],
+      "sha256": "a274e976b4fa2142e8db40fd8bc677238fb830c46c68a2c354ad7d3f198dce74",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/document-save.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "traffic",
+      "requested": "icons/actions/22/view-statistics.svg",
+      "resolved": "icons/actions/22/view-statistics.svg",
+      "aliasChain": [
+        "icons/actions/22/view-statistics.svg"
+      ],
+      "sha256": "c468f8661b5059add3476cf4c6dc6718f879dd0df4e671fbe25d3124702af519",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/view-statistics.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "usb",
+      "requested": "icons/actions/22/network-connect.svg",
+      "resolved": "icons/actions/22/network-connect.svg",
+      "aliasChain": [
+        "icons/actions/22/network-connect.svg"
+      ],
+      "sha256": "649d9f07037759745ad76d6fcaacb2c2ea9527fa3f5dc4ebdf1267e2712a8231",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/network-connect.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "usb-off",
+      "requested": "icons/actions/22/network-disconnect.svg",
+      "resolved": "icons/actions/22/network-disconnect.svg",
+      "aliasChain": [
+        "icons/actions/22/network-disconnect.svg"
+      ],
+      "sha256": "e299c4fd3da0db8343961bc2fff5288e9cbf4fb67c56a7fbcf149760fdbc3ea2",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/network-disconnect.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NegativeText"
+      ]
+    },
+    {
+      "key": "wifi",
+      "requested": "icons/devices/22/network-wireless.svg",
+      "resolved": "icons/status/22/network-wireless-connected-100.svg",
+      "aliasChain": [
+        "icons/devices/22/network-wireless.svg",
+        "icons/status/22/network-wireless-connected-100.svg"
+      ],
+      "sha256": "8ee4a5ef304bfbbce0f4ac238755aa4de84de266378f7f8cc594c0beb717acd2",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/network-wireless-connected-100.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "wifi-unknown",
+      "requested": "icons/status/22/network-wireless-disconnected.svg",
+      "resolved": "icons/status/22/network-wireless-disconnected.svg",
+      "aliasChain": [
+        "icons/status/22/network-wireless-disconnected.svg"
+      ],
+      "sha256": "7a91f3568c95db3b962fa2bade9a940b506752440b1f6b243669fc0b9f494228",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/network-wireless-disconnected.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NegativeText"
+      ]
+    },
+    {
+      "key": "bluetooth",
+      "requested": "icons/devices/22/network-bluetooth-symbolic.svg",
+      "resolved": "icons/devices/22/network-bluetooth.svg",
+      "aliasChain": [
+        "icons/devices/22/network-bluetooth-symbolic.svg",
+        "icons/devices/22/network-bluetooth.svg"
+      ],
+      "sha256": "ad8da1b0e30a259bc3b74ddde3e13cbb26442432a2ac385fed920072d743a7a8",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/devices/22/network-bluetooth.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "bluetooth-unknown",
+      "requested": "icons/status/22/network-bluetooth-inactive-symbolic.svg",
+      "resolved": "icons/status/22/network-bluetooth-inactive-symbolic.svg",
+      "aliasChain": [
+        "icons/status/22/network-bluetooth-inactive-symbolic.svg"
+      ],
+      "sha256": "9243d2d0ad5705c5a7e327eeb3a846843496c8f286c0cbac246d001264d26a32",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/network-bluetooth-inactive-symbolic.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "ethernet",
+      "requested": "icons/devices/22/network-wired.svg",
+      "resolved": "icons/status/22/network-wired-activated.svg",
+      "aliasChain": [
+        "icons/devices/22/network-wired.svg",
+        "icons/status/22/network-wired-activated.svg"
+      ],
+      "sha256": "49b5f911ee28dd0648ea2dd8c3e1b5036cfbf3ae5ef2c8bb29353217da2b3439",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/network-wired-activated.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "ethernet-unknown",
+      "requested": "icons/status/22/network-wired-unavailable.svg",
+      "resolved": "icons/status/22/network-wired-unavailable.svg",
+      "aliasChain": [
+        "icons/status/22/network-wired-unavailable.svg"
+      ],
+      "sha256": "eaab432e2ec226213fd02e913f397900f351fcabbe66d2bbf7fde90c222054fc",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/network-wired-unavailable.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NegativeText"
+      ]
+    },
+    {
+      "key": "upload",
+      "requested": "icons/actions/22/kt-set-max-upload-speed.svg",
+      "resolved": "icons/actions/22/kt-set-max-upload-speed.svg",
+      "aliasChain": [
+        "icons/actions/22/kt-set-max-upload-speed.svg"
+      ],
+      "sha256": "4f26c18003140dc073d4bee680e96f72aad2ab3f43dc8ec082d0da7d12d28048",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/kt-set-max-upload-speed.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "download",
+      "requested": "icons/actions/22/kt-set-max-download-speed.svg",
+      "resolved": "icons/actions/22/edit-download.svg",
+      "aliasChain": [
+        "icons/actions/22/kt-set-max-download-speed.svg",
+        "icons/actions/22/edit-download.svg"
+      ],
+      "sha256": "1417a7a13f9336935bb9b3bce2bf8491ffa4266ddb822d382c4b14844a859106",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/edit-download.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "battery",
+      "requested": "icons/status/22/battery-100.svg",
+      "resolved": "icons/status/22/battery-100.svg",
+      "aliasChain": [
+        "icons/status/22/battery-100.svg"
+      ],
+      "sha256": "afe838ca120c6ba3da8ee0121307c8c26b7d5011b52281c5828b9fc62f5440fa",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-100.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "battery-missing",
+      "requested": "icons/status/22/battery-missing.svg",
+      "resolved": "icons/status/22/battery-missing.svg",
+      "aliasChain": [
+        "icons/status/22/battery-missing.svg"
+      ],
+      "sha256": "f5927e4b96214ab5774ff63d2682a1450924fdfff11f09afd39817ce76388f59",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-missing.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NegativeText",
+        "var(--icon-cutout, #24272c)"
+      ]
+    },
+    {
+      "key": "battery-unknown",
+      "requested": "icons/actions/22/question.svg",
+      "resolved": "icons/actions/22/question.svg",
+      "aliasChain": [
+        "icons/actions/22/question.svg"
+      ],
+      "sha256": "542d05a3335f5320a9729266703af13abb74382052a31e2669aa580af9daf728",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/question.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "bolt",
+      "requested": "icons/actions/22/flash.svg",
+      "resolved": "icons/actions/22/flash.svg",
+      "aliasChain": [
+        "icons/actions/22/flash.svg"
+      ],
+      "sha256": "08583fc910e2657fd0c8610831cd3aa30ffd1f74f5ccd3628f3fddb1b0d98344",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/flash.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "archive",
+      "requested": "icons/actions/22/archive-extract.svg",
+      "resolved": "icons/actions/22/archive-extract.svg",
+      "aliasChain": [
+        "icons/actions/22/archive-extract.svg"
+      ],
+      "sha256": "dea306c8f800a32d7aa4514405fd64cc5e3096bfd194aada69af515ce05f2209",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/archive-extract.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "verify",
+      "requested": "icons/actions/22/edit-find.svg",
+      "resolved": "icons/actions/22/edit-find.svg",
+      "aliasChain": [
+        "icons/actions/22/edit-find.svg"
+      ],
+      "sha256": "f8938e4efe1655e0cbcdb8dbd0ab4d1e16142bdad379259d2d04c2946daef3c1",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/edit-find.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "tree",
+      "requested": "icons/actions/22/view-list-tree.svg",
+      "resolved": "icons/actions/22/view-list-tree.svg",
+      "aliasChain": [
+        "icons/actions/22/view-list-tree.svg"
+      ],
+      "sha256": "f17cf23b2199b80a59109ecbca4dc5ae82cc2f1b5b5198086936d6292df7b64e",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/view-list-tree.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "unlock",
+      "requested": "icons/actions/22/document-decrypt.svg",
+      "resolved": "icons/actions/22/document-decrypt.svg",
+      "aliasChain": [
+        "icons/actions/22/document-decrypt.svg"
+      ],
+      "sha256": "8fe405edced85b8a9c95b33bf310361ccd0de730596cb286fd11a9971b1397f6",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/document-decrypt.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "prepare",
+      "requested": "icons/actions/22/edit-delete-shred.svg",
+      "resolved": "icons/actions/22/edit-delete-shred.svg",
+      "aliasChain": [
+        "icons/actions/22/edit-delete-shred.svg"
+      ],
+      "sha256": "b5e45e8da6800bd55483117b5ddd62fb0cf16001e9ea26c3ba12a056c5d6a8e7",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/edit-delete-shred.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NegativeText"
+      ]
+    },
+    {
+      "key": "clear",
+      "requested": "icons/actions/22/edit-delete-remove.svg",
+      "resolved": "icons/actions/22/paint-none.svg",
+      "aliasChain": [
+        "icons/actions/22/edit-delete-remove.svg",
+        "icons/actions/22/paint-none.svg"
+      ],
+      "sha256": "9c8f72557aea42d802793e6cbf3cd0cf625f51123e237b8ba12efbe64e1ec45d",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/paint-none.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NegativeText"
+      ]
+    },
+    {
+      "key": "delete",
+      "requested": "icons/actions/22/edit-delete.svg",
+      "resolved": "icons/actions/22/edit-delete.svg",
+      "aliasChain": [
+        "icons/actions/22/edit-delete.svg"
+      ],
+      "sha256": "e74e0ecc0457eb72e2d9d4501bd22918bcf611fb6e5ce40bf9397b499008db7e",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/edit-delete.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NegativeText"
+      ]
+    },
+    {
+      "key": "startup",
+      "requested": "icons/actions/22/system-run.svg",
+      "resolved": "icons/actions/22/system-run.svg",
+      "aliasChain": [
+        "icons/actions/22/system-run.svg"
+      ],
+      "sha256": "26820c64dd590f903cd6e15d9a6d1ff1fbb884bc1fe58ef9fddca1e038991173",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/system-run.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "bootloader",
+      "requested": "icons/actions/22/window-close.svg",
+      "resolved": "icons/actions/22/window-close.svg",
+      "aliasChain": [
+        "icons/actions/22/window-close.svg"
+      ],
+      "sha256": "897d21de83ce8e6f76d7220266645e81ae66fa1a9cecf8b1da128f15875232f8",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/window-close.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "keyboard",
+      "requested": "icons/devices/22/input-keyboard.svg",
+      "resolved": "icons/devices/22/input-keyboard.svg",
+      "aliasChain": [
+        "icons/devices/22/input-keyboard.svg"
+      ],
+      "sha256": "ed5dc7639d6ba347f7f11cfd9045069202ad7fbb68f7fbb25c1cb88aecf86c79",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/devices/22/input-keyboard.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "background",
+      "requested": "icons/actions/22/view-preview.svg",
+      "resolved": "icons/actions/22/view-preview.svg",
+      "aliasChain": [
+        "icons/actions/22/view-preview.svg"
+      ],
+      "sha256": "c5e1d8a182b59056c7fe168da101c27d22559f6a8af88a51bbb5438f8f59092b",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/view-preview.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "format",
+      "requested": "icons/actions/22/format-text-bold.svg",
+      "resolved": "icons/actions/22/format-text-bold.svg",
+      "aliasChain": [
+        "icons/actions/22/format-text-bold.svg"
+      ],
+      "sha256": "6588c42cd9aa83ef5982383cf36da9dd71473c43d27feca46b1aa3c2c2687b10",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/format-text-bold.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "undo",
+      "requested": "icons/actions/22/edit-undo.svg",
+      "resolved": "icons/actions/22/edit-undo.svg",
+      "aliasChain": [
+        "icons/actions/22/edit-undo.svg"
+      ],
+      "sha256": "c7b8b6dc9062672da441f783864e8e1b71351f5aa6afc55156cf66502727ec37",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/edit-undo.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "battery-000",
+      "requested": "icons/status/22/battery-000.svg",
+      "resolved": "icons/status/22/battery-000.svg",
+      "aliasChain": [
+        "icons/status/22/battery-000.svg"
+      ],
+      "sha256": "d50c6f4c14205c8f9cc7b0e6a8eab4d9c3deac9ca457252ed9b2eaedf32554a9",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-000.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NegativeText"
+      ]
+    },
+    {
+      "key": "battery-000-charging",
+      "requested": "icons/status/22/battery-000-charging.svg",
+      "resolved": "icons/status/22/battery-000-charging.svg",
+      "aliasChain": [
+        "icons/status/22/battery-000-charging.svg"
+      ],
+      "sha256": "7d99ae5da4e04056df0e29e1a0db32619515913e8cb2ce94291c46650ec2af63",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-000-charging.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NegativeText",
+        "ColorScheme-PositiveText"
+      ]
+    },
+    {
+      "key": "battery-010",
+      "requested": "icons/status/22/battery-010.svg",
+      "resolved": "icons/status/22/battery-010.svg",
+      "aliasChain": [
+        "icons/status/22/battery-010.svg"
+      ],
+      "sha256": "614f18faf0a5822b6ba00d7a335074e68db14a20612007b7f7116b3d1a3cb462",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-010.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NegativeText"
+      ]
+    },
+    {
+      "key": "battery-010-charging",
+      "requested": "icons/status/22/battery-010-charging.svg",
+      "resolved": "icons/status/22/battery-010-charging.svg",
+      "aliasChain": [
+        "icons/status/22/battery-010-charging.svg"
+      ],
+      "sha256": "c2aa957374c69adb7d1e91348c46f52a70c7ee696d9c6f59b0467826ddb185c7",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-010-charging.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-NegativeText",
+        "ColorScheme-PositiveText"
+      ]
+    },
+    {
+      "key": "battery-020",
+      "requested": "icons/status/22/battery-020.svg",
+      "resolved": "icons/status/22/battery-020.svg",
+      "aliasChain": [
+        "icons/status/22/battery-020.svg"
+      ],
+      "sha256": "10b42b3a1a7416b677cefd3e6afdf7e1e0cee361e2cbb4296ff44135bfc1500b",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-020.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "battery-020-charging",
+      "requested": "icons/status/22/battery-020-charging.svg",
+      "resolved": "icons/status/22/battery-020-charging.svg",
+      "aliasChain": [
+        "icons/status/22/battery-020-charging.svg"
+      ],
+      "sha256": "cfeb9bb10af3edd70f546877e800a87b8e50cbba61700fd42137a243e6f1de55",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-020-charging.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-PositiveText"
+      ]
+    },
+    {
+      "key": "battery-030",
+      "requested": "icons/status/22/battery-030.svg",
+      "resolved": "icons/status/22/battery-030.svg",
+      "aliasChain": [
+        "icons/status/22/battery-030.svg"
+      ],
+      "sha256": "4f86de8eb4c716e87af5cda01ef0883f8e673e7d747d9c6f825a28e1dd6be493",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-030.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "battery-030-charging",
+      "requested": "icons/status/22/battery-030-charging.svg",
+      "resolved": "icons/status/22/battery-030-charging.svg",
+      "aliasChain": [
+        "icons/status/22/battery-030-charging.svg"
+      ],
+      "sha256": "b5fa3c882b7bf0d73eee51181043c56ba2aef6f172022aee0c51671c551b34d9",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-030-charging.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-PositiveText"
+      ]
+    },
+    {
+      "key": "battery-040",
+      "requested": "icons/status/22/battery-040.svg",
+      "resolved": "icons/status/22/battery-040.svg",
+      "aliasChain": [
+        "icons/status/22/battery-040.svg"
+      ],
+      "sha256": "6b1aba09ea8016399a7b8a0610e4987b5da0e6ebb27fffad5f1efa94c57a7737",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-040.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "battery-040-charging",
+      "requested": "icons/status/22/battery-040-charging.svg",
+      "resolved": "icons/status/22/battery-040-charging.svg",
+      "aliasChain": [
+        "icons/status/22/battery-040-charging.svg"
+      ],
+      "sha256": "f769f43a89a8389eff0441ca54bd30057245f288a3847ec3d341ba9875f7b563",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-040-charging.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-PositiveText"
+      ]
+    },
+    {
+      "key": "battery-050",
+      "requested": "icons/status/22/battery-050.svg",
+      "resolved": "icons/status/22/battery-050.svg",
+      "aliasChain": [
+        "icons/status/22/battery-050.svg"
+      ],
+      "sha256": "745301e09ced310f2dcc544c35bed1272fdd2b73d7e8b409781b238ae3f78553",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-050.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "battery-050-charging",
+      "requested": "icons/status/22/battery-050-charging.svg",
+      "resolved": "icons/status/22/battery-050-charging.svg",
+      "aliasChain": [
+        "icons/status/22/battery-050-charging.svg"
+      ],
+      "sha256": "9b3bd4ebeb7708ea40c6d4c9f6f96c1a395eac83c882e1681578d93149319095",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-050-charging.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-PositiveText"
+      ]
+    },
+    {
+      "key": "battery-060",
+      "requested": "icons/status/22/battery-060.svg",
+      "resolved": "icons/status/22/battery-060.svg",
+      "aliasChain": [
+        "icons/status/22/battery-060.svg"
+      ],
+      "sha256": "6dc797d5537f2116789ef934ceb5bd6b55fe3213c24772cd9bc8c9744db71a67",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-060.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "battery-060-charging",
+      "requested": "icons/status/22/battery-060-charging.svg",
+      "resolved": "icons/status/22/battery-060-charging.svg",
+      "aliasChain": [
+        "icons/status/22/battery-060-charging.svg"
+      ],
+      "sha256": "269aa50f1f46bb21618826352a0427cad377046fac2e350f2f4be147caf24636",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-060-charging.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-PositiveText"
+      ]
+    },
+    {
+      "key": "battery-070",
+      "requested": "icons/status/22/battery-070.svg",
+      "resolved": "icons/status/22/battery-070.svg",
+      "aliasChain": [
+        "icons/status/22/battery-070.svg"
+      ],
+      "sha256": "e3270ac426b87b154a5e3e2571e3b34c5835da6695cb7ba4ecfce9aca8af21ef",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-070.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "battery-070-charging",
+      "requested": "icons/status/22/battery-070-charging.svg",
+      "resolved": "icons/status/22/battery-070-charging.svg",
+      "aliasChain": [
+        "icons/status/22/battery-070-charging.svg"
+      ],
+      "sha256": "ce91b8a881654fd614b03aad3f7da18e130c5126a7aced3f64d1e700bc7d0b33",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-070-charging.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-PositiveText"
+      ]
+    },
+    {
+      "key": "battery-080",
+      "requested": "icons/status/22/battery-080.svg",
+      "resolved": "icons/status/22/battery-080.svg",
+      "aliasChain": [
+        "icons/status/22/battery-080.svg"
+      ],
+      "sha256": "05da2436550b0b0fd42d88087e14a2354b00e50274f3387b34e26ce0e00910b1",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-080.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "battery-080-charging",
+      "requested": "icons/status/22/battery-080-charging.svg",
+      "resolved": "icons/status/22/battery-080-charging.svg",
+      "aliasChain": [
+        "icons/status/22/battery-080-charging.svg"
+      ],
+      "sha256": "8426a8d6ee7e92a3fad6db4aba7573b70823d4c755071d91074985c84eadf798",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-080-charging.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-PositiveText"
+      ]
+    },
+    {
+      "key": "battery-090",
+      "requested": "icons/status/22/battery-090.svg",
+      "resolved": "icons/status/22/battery-090.svg",
+      "aliasChain": [
+        "icons/status/22/battery-090.svg"
+      ],
+      "sha256": "57a0161021f8968345cc7d31c44b940269c935756781cdcc5d309d16d0b2e678",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-090.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "battery-090-charging",
+      "requested": "icons/status/22/battery-090-charging.svg",
+      "resolved": "icons/status/22/battery-090-charging.svg",
+      "aliasChain": [
+        "icons/status/22/battery-090-charging.svg"
+      ],
+      "sha256": "ad088fecf5eeeee57fddb83d0bc884a761d34e19335d968554c544129fb965d1",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-090-charging.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-PositiveText"
+      ]
+    },
+    {
+      "key": "battery-100",
+      "requested": "icons/status/22/battery-100.svg",
+      "resolved": "icons/status/22/battery-100.svg",
+      "aliasChain": [
+        "icons/status/22/battery-100.svg"
+      ],
+      "sha256": "afe838ca120c6ba3da8ee0121307c8c26b7d5011b52281c5828b9fc62f5440fa",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-100.svg",
+      "canvas": "0 0 22 22",
+      "roles": []
+    },
+    {
+      "key": "battery-100-charging",
+      "requested": "icons/status/22/battery-100-charging.svg",
+      "resolved": "icons/status/22/battery-100-charging.svg",
+      "aliasChain": [
+        "icons/status/22/battery-100-charging.svg"
+      ],
+      "sha256": "b67c0f019afb9225d8f74e929bed502b2dd46d839db7945cf44c73c5d3f0fea0",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/battery-100-charging.svg",
+      "canvas": "0 0 22 22",
+      "roles": [
+        "ColorScheme-PositiveText"
+      ]
+    },
+    {
+      "key": "ncm-disabled",
+      "requested": "icons/status/22/network-offline.svg",
+      "resolved": "icons/status/22/network-wired-unavailable.svg",
+      "aliasChain": [
+        "icons/status/22/network-offline.svg",
+        "icons/status/22/network-wired-unavailable.svg"
+      ],
+      "sha256": "eaab432e2ec226213fd02e913f397900f351fcabbe66d2bbf7fde90c222054fc",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/network-wired-unavailable.svg"
+    },
+    {
+      "key": "ncm-down",
+      "requested": "icons/status/22/network-wired-unavailable.svg",
+      "resolved": "icons/status/22/network-wired-unavailable.svg",
+      "aliasChain": [
+        "icons/status/22/network-wired-unavailable.svg"
+      ],
+      "sha256": "eaab432e2ec226213fd02e913f397900f351fcabbe66d2bbf7fde90c222054fc",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/network-wired-unavailable.svg"
+    },
+    {
+      "key": "ncm-connecting",
+      "requested": "icons/status/22/network-wireless-acquiring-symbolic.svg",
+      "resolved": "icons/status/22/network-wireless-acquiring.svg",
+      "aliasChain": [
+        "icons/status/22/network-wireless-acquiring-symbolic.svg",
+        "icons/status/22/network-wireless-acquiring.svg"
+      ],
+      "sha256": "7f65dddd414d35a99329fd619a559b8136d2df088c09409fbb6f8eec0f4adcde",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/network-wireless-acquiring.svg"
+    },
+    {
+      "key": "ncm-no-address",
+      "requested": "icons/status/22/network-limited.svg",
+      "resolved": "icons/status/22/network-limited.svg",
+      "aliasChain": [
+        "icons/status/22/network-limited.svg"
+      ],
+      "sha256": "3595fd6358ca41da4688dc5c8849d18fa484c7dabe34fa9bfc1d212edbc3a3f2",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/status/22/network-limited.svg"
+    },
+    {
+      "key": "ncm-suspended",
+      "requested": "icons/actions/22/media-playback-pause.svg",
+      "resolved": "icons/actions/22/media-playback-pause.svg",
+      "aliasChain": [
+        "icons/actions/22/media-playback-pause.svg"
+      ],
+      "sha256": "8e394b433cf56e74fbfbed4cf07563df36b451abb31890c1ce12bc5e1aa0e49e",
+      "source": "https://github.com/KDE/breeze-icons/blob/744be60c294e79719c7506ead95f1f103e539993/icons/actions/22/media-playback-pause.svg"
+    }
+  ]
+}

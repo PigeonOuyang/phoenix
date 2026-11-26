@@ -44,9 +44,59 @@
 . /usr/libexec/overpressure/lib.sh
 set -o pipefail
 
+# The native settings store owns install.lock; don't take it a second time here.
+case "${1:-}" in
+preferences-set)
+	[ "$#" = 2 ] && { [ "$2" = zh-CN ] || [ "$2" = en ]; } || {
+		echo 'pico4-install: preferences-set accepts zh-CN or en' >&2
+		exit 2
+	}
+	exec /usr/bin/pico4-recovery-ui --preferences-store "$2"
+	;;
+settings-set)
+	[ "$#" = 2 ] || exit 2
+	exec /usr/bin/pico4-recovery-ui --settings-store "$2"
+	;;
+esac
+
 STATE=$OP_RUN/install
 BCB_BYTES=2048 # Android's struct bootloader_message
-die() { log "install: $*"; echo "pico4-install: $*" >&2; exit 1; }
+TOUCHED=""
+ACTIVE_MOUNTS=""
+CONTACT_PID=""
+FAILURE=""
+# shellcheck disable=SC2034 # The sourced task-state broker reads this flag.
+PICO4_TASK_SOURCE=1
+. /usr/libexec/pico4/task-state
+unset PICO4_TASK_SOURCE
+die() { FAILURE=$*; log "install: $*"; echo "pico4-install: $*" >&2; exit 1; }
+
+phase() { task_phase "$@" || die "could not publish task phase $1"; }
+
+cleanup() {
+	local rc=$? dev mnt restored=true
+	trap - EXIT HUP INT TERM
+	[ -z "$CONTACT_PID" ] || { kill "$CONTACT_PID" 2>/dev/null; wait "$CONTACT_PID" 2>/dev/null; }
+	for mnt in $ACTIVE_MOUNTS; do
+		if awk -v m="$mnt" '$2 == m {found=1} END {exit !found}' /proc/mounts; then
+			umount "$mnt" || { restored=false; rc=1; }
+		fi
+	done
+	for dev in $TOUCHED; do
+		partition_is_readonly "$dev" || readonly_again "$dev" || { restored=false; rc=1; }
+	done
+	task_readonly "$restored" || rc=1
+	if [ "${PICO4_WORKFLOW:-0}" != 1 ]; then
+		if [ "$rc" = 0 ]; then
+			task_stage 0 'done' 'Backend command completed' && task_finish 'done' 'Backend command completed' || rc=1
+		else
+			task_finish error "${FAILURE:-Command failed or read-only restoration could not be verified; see the original log}" || true
+		fi
+		printf false > "$TASK_DIR/locked"
+		task_publish || rc=1
+	fi
+	exit "$rc"
+}
 
 # The block device of a partition, checked against the size the PC expects.
 partition() {
@@ -57,11 +107,20 @@ partition() {
 	echo "$dev"
 }
 
+partition_is_readonly() {
+	local disk
+	[ "$(blockdev --getro "$1" 2>/dev/null)" = 1 ] || return 1
+	disk=$(readlink -f "/sys/class/block/${1##*/}/..")
+	[ ! -b "/dev/${disk##*/}" ] || [ "$(blockdev --getro "/dev/${disk##*/}" 2>/dev/null)" = 1 ]
+}
+
 # writable DEV: the partition writable for its write. Valve's kernel counts a disk's read-only flag
 # for its partitions too (the stock kernel does not), so there the disk becomes writable as well; its
 # other partitions keep their own flags. readonly_again sets both back.
 writable() {
 	local disk
+	TOUCHED="$TOUCHED $1"
+	task_readonly false || die "could not publish writable state"
 	blockdev --setrw "$1" || die "could not make $1 writable"
 	if [ "$(cat "/sys/class/block/${1##*/}/ro" 2>/dev/null)" != 0 ]; then
 		disk=$(readlink -f "/sys/class/block/${1##*/}/..")
@@ -70,15 +129,22 @@ writable() {
 	[ "$(cat "/sys/class/block/${1##*/}/ro" 2>/dev/null)" = 0 ] || die "$1 stays read-only"
 }
 readonly_again() {
-	local disk
+	local disk rc=0
 	disk=$(readlink -f "/sys/class/block/${1##*/}/..")
-	blockdev --setro "$1" || log "install: could not set $1 read-only"
-	[ ! -b "/dev/${disk##*/}" ] || blockdev --setro "/dev/${disk##*/}" || log "install: could not set ${disk##*/} read-only"
+	blockdev --setro "$1" || rc=1
+	[ "$(blockdev --getro "$1" 2>/dev/null)" = 1 ] || rc=1
+	if [ -b "/dev/${disk##*/}" ]; then
+		blockdev --setro "/dev/${disk##*/}" || rc=1
+		[ "$(blockdev --getro "/dev/${disk##*/}" 2>/dev/null)" = 1 ] || rc=1
+	fi
+	[ "$rc" = 0 ] || log "install: could not verify $1 and its disk read-only"
+	return "$rc"
 }
 # mount_data DEV DIR: the data partition mounted writable at DIR (made writable before). BusyBox's
 # mount falls back to read-only by itself where the device refuses writes: that counts as a failure.
 mount_data() {
 	mount -t ext4 -o noatime "$1" "$2" || { readonly_again "$1"; die "mounting userdata failed"; }
+	ACTIVE_MOUNTS="$ACTIVE_MOUNTS $2"
 	awk -v d="$2" '$2 == d {split($4, o, ","); exit o[1] != "rw"}' /proc/mounts ||
 		{ umount "$2"; readonly_again "$1"; die "userdata mounted read-only"; }
 }
@@ -95,9 +161,66 @@ sha256() {
 
 # read_part DEVICE BYTES: the device's first BYTES, read in 4 MiB blocks (head -c reads a block
 # device in small pieces: half the speed with the hash).
-read_part() {
-	dd if="$1" bs=4M iflag=count_bytes count="$2" 2>/dev/null
+read_part() { read_for_hash "$1" "$2"; }
+
+# Monitor only the actual dd partition descriptor. Its offset measures bytes
+# accepted by the local block device or read from it, not durability or a digest.
+watch_bytes() {
+	local worker=$1 fd=$2 path=$3 id=$4 total=$5 source=$6 seen=0 n candidate
+	while kill -0 "$worker" 2>/dev/null; do
+		n=0
+		if [ "$fd" = file ]; then
+			n=$(stat -c %s "$path" 2>/dev/null) || n=0
+		else
+			for candidate in /proc/"$worker"/fd/*; do
+				[ "$candidate" -ef "$path" ] || continue
+				n=$(awk '/^pos:/ {print $2; exit}' "/proc/$worker/fdinfo/${candidate##*/}" 2>/dev/null)
+				break
+			done
+		fi
+		if [ "${n:-0}" -gt "$seen" ] && [ "$n" -le "$total" ]; then
+			task_phase "$id" running "$n" "$total" bytes "$source" || return
+			seen=$n
+		fi
+		sleep 0.25
+	done
 }
+
+metered_io() {
+	local fd=$1 path=$2 id=$3 bytes=$4 source=$5 worker monitor rc=0
+	shift 5
+	if [ ! -f "$TASK_DIR/plan.$(cat "$TASK_DIR/active")" ]; then
+		"$@"
+		return
+	fi
+	phase "$id" running 0 "$bytes" bytes "$source"
+	# Ash otherwise gives background jobs /dev/null as stdin.
+	exec 7<&0
+	"$@" <&7 &
+	worker=$!
+	exec 7<&-
+	watch_bytes "$worker" "$fd" "$path" "$id" "$bytes" "$source" </dev/null >/dev/null &
+	monitor=$!
+	wait "$worker" || rc=$?
+	wait "$monitor" || log "install: $id progress monitor stopped"
+	return "$rc"
+}
+
+read_for_hash() {
+	local dev=$1 bytes=$2 id=${3:-} rc=0
+	exec 6< "$dev" || return 1
+	if [ -z "$id" ]; then
+		dd bs=4M iflag=count_bytes count="$bytes" <&6 2>/dev/null || rc=$?
+	else
+		metered_io block "$dev" "$id" "$bytes" local-readback-bytes \
+			dd bs=4M iflag=count_bytes count="$bytes" <&6 2>/dev/null || rc=$?
+	fi
+	[ "$(fd_position 6)" = "$bytes" ] || rc=1
+	exec 6<&-
+	return "$rc"
+}
+
+fd_position() { awk '/^pos:/ {print $2; exit}' "/proc/self/fdinfo/$1"; }
 
 # stream ZSTD: standard input as the image, decompressed when ZSTD is 1.
 stream() {
@@ -108,6 +231,7 @@ write() {
 	local name=$1 size="" bytes="" sha="" zstd=0 from="" dev back src=$STATE/data-src
 	shift
 	case "$name" in boot | super) ;; *) die "write refuses $name (boot or super only)" ;; esac
+	phase inspect running
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--size) size=$2; shift ;;
@@ -122,7 +246,7 @@ write() {
 	[ -n "$size" ] && [ -n "$bytes" ] && [ ${#sha} = 64 ] || die "write needs --size, --bytes and --sha256"
 	[ "$bytes" -gt 0 ] && [ "$bytes" -le "$size" ] || die "the image ($bytes bytes) does not fit $name"
 	[ "$zstd" = 0 ] || command -v zstd >/dev/null || die "zstd missing from this image (rebuild stage 1)"
-	dev=$(partition "$name" "$size")
+	dev=$(partition "$name" "$size") || die "partition check failed"
 	mkdir -p "$STATE"
 	if [ -n "$from" ]; then
 		case "$from" in /* | *..*) die "--from-data takes a path inside the data partition" ;; esac
@@ -130,40 +254,54 @@ write() {
 		[ -f "$src/$from" ] || { umount "$src"; die "no $from on the data partition"; }
 		exec < "$src/$from"
 	fi
+	phase inspect 'done'
+	phase write running
 	writable "$dev"
 	log "install: writing $bytes bytes to $name ($dev)"
 	# Straight into dd in 4 MiB blocks: a hash of the stream beside it (tee) held the write to
 	# 25 MB/s, below the USB link. The readback below checks what was written, and with it the
 	# stream: a stream that differs from the image cannot read back with the image's hash.
-	stream "$zstd" | dd of="$dev" bs=4M iflag=count_bytes,fullblock count="$bytes" conv=fsync 2> "$STATE/dd.log"
+	stream "$zstd" | metered_io block "$dev" write "$bytes" local-written-bytes \
+		dd of="$dev" bs=4M iflag=count_bytes,fullblock count="$bytes" conv=fsync 2> "$STATE/dd.log"
 	local rc=$?
-	sync
-	readonly_again "$dev"
+	if [ "$rc" = 0 ]; then phase write 'done'; phase flush running; fi
+	sync || die "could not sync $name"
+	readonly_again "$dev" || die "read-only restoration of $name failed"
 	# The image is this shell's standard input: closed first, or the mount stays busy.
-	[ -z "$from" ] || { exec < /dev/null; umount "$src" || log "install: could not unmount $src"; }
+	[ -z "$from" ] || { exec < /dev/null; umount "$src" || die "could not unmount $src"; }
 	[ $rc = 0 ] || die "writing $name failed ($(tail -n 2 "$STATE/dd.log" | tr '\n' ' '))"
+	phase flush 'done'
 	echo 3 > /proc/sys/vm/drop_caches
-	back=$(read_part "$dev" "$bytes" | sha256)
+	phase read running
+	back=$(read_for_hash "$dev" "$bytes" read | sha256) || die "could not read back $name"
+	phase read 'done'
+	phase digest running
 	[ "$back" = "$sha" ] || die "readback of $name differs: $back is not the image's $sha ($name now holds it)"
+	phase digest 'done'
 	log "install: $name holds $sha"
 	echo "written $name $sha"
 }
 
 format_data() {
 	local size="" dev
+	phase format running
 	[ "$1" = --size ] && size=$2
 	[ -n "$size" ] || die "format-data needs --size"
-	dev=$(partition userdata "$size")
+	dev=$(partition userdata "$size") || die "partition check failed"
 	command -v mkfs.ext4 >/dev/null || die "mkfs.ext4 missing from this image"
 	writable "$dev"
 	log "install: formatting userdata ($dev) as pico4-data"
 	# e2fsprogs >= 1.47 enables features the stock kernel, under this maintenance stage 1, cannot mount.
 	mkfs.ext4 -q -F -L pico4-data -O ^orphan_file,^metadata_csum_seed "$dev"
 	local rc=$?
-	sync
-	readonly_again "$dev"
+	if [ "$rc" = 0 ]; then phase format 'done'; phase settle running; fi
+	sync || die "could not sync userdata"
+	readonly_again "$dev" || die "read-only restoration of userdata failed"
 	[ $rc = 0 ] || die "mkfs.ext4 failed"
+	phase settle 'done'
+	phase label-ok running
 	[ "$(ext_label "$dev")" = pico4-data ] || die "userdata has no pico4-data file system after formatting"
+	phase label-ok 'done'
 	echo "formatted userdata"
 }
 
@@ -179,7 +317,7 @@ keys() {
 	done
 	[ -n "$size" ] && [ -n "$id" ] || die "keys needs --size and --id"
 	case "$id" in *[!A-Za-z0-9._-]*) die "the install ID may hold letters, digits, dots, dashes" ;; esac
-	dev=$(partition userdata "$size")
+	dev=$(partition userdata "$size") || die "partition check failed"
 	[ "$(ext_label "$dev")" = pico4-data ] || die "userdata holds no pico4-data file system"
 	mkdir -p "$STATE" "$mnt"
 	head -c 65536 > "$STATE/authorized_keys"
@@ -197,9 +335,11 @@ keys() {
 	} || rc=1
 	umount "$mnt" || rc=1
 	sync
-	readonly_again "$dev"
+	readonly_again "$dev" || die "read-only restoration of userdata failed"
 	[ $rc = 0 ] || die "writing the keys to userdata failed"
-	log "install: $count SSH key(s) and install ID $id on userdata"
+	phase keys 'done'
+	phase keys-ok running
+	log "install: wrote $count SSH key(s) and the install ID to userdata"
 	echo "keys $count"
 }
 
@@ -207,7 +347,8 @@ keys() {
 STOCK_DIR=var/lib/pico4-stock
 
 stock() {
-	local size="" bytes="" sha="" dev mnt=$STATE/data archive=$STATE/stock.tar.gz got rc=0
+	local size="" bytes="" sha="" dev mnt=$STATE/data archive=$STATE/stock.tar.gz got rc=0 total
+	phase receive-assets running
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--size) size=$2; shift ;;
@@ -218,19 +359,31 @@ stock() {
 		shift
 	done
 	[ -n "$size" ] && [ -n "$bytes" ] && [ ${#sha} = 64 ] || die "stock needs --size, --bytes and --sha256"
-	dev=$(partition userdata "$size")
+	case "$bytes" in *[!0-9]*) die "stock needs a positive archive size" ;; esac
+	[ "$bytes" -gt 0 ] || die "stock needs a positive archive size"
+	dev=$(partition userdata "$size") || die "partition check failed"
 	[ "$(ext_label "$dev")" = pico4-data ] || die "userdata holds no pico4-data file system"
 	mkdir -p "$STATE" "$mnt"
-	head -c "$bytes" > "$archive"
-	got=$(sha256 < "$archive")
-	[ "$(wc -c < "$archive")" = "$bytes" ] && [ "$got" = "$sha" ] || { rm -f "$archive"; die "the archive is not the one sent ($got)"; }
+	metered_io file "$archive" receive-assets "$bytes" local-received-bytes head -c "$bytes" > "$archive" ||
+		die "receiving the archive failed"
+	[ "$(stat -c %s "$archive")" = "$bytes" ] || { rm -f "$archive"; die "the received archive is short"; }
+	phase receive-assets 'done'
+	phase archive-hash running
+	got=$(sha256 < "$archive") || die "could not hash the received archive"
+	[ "$got" = "$sha" ] || { rm -f "$archive"; die "the archive is not the one sent ($got)"; }
+	phase archive-hash 'done'
+	phase extract-assets running
 	writable "$dev"
 	mount_data "$dev" "$mnt"
 	{
 		rm -rf "${mnt:?}/$STOCK_DIR.new" &&
 			mkdir -p "$mnt/$STOCK_DIR.new" &&
 			tar -xzf "$archive" -C "$mnt/$STOCK_DIR.new" &&
-			(cd "$mnt/$STOCK_DIR.new" && sha256sum -c SHA256SUMS >/dev/null) &&
+			phase extract-assets 'done' && phase verify-files running &&
+			(cd "$mnt/$STOCK_DIR.new" &&
+				total=$(awk 'END { print NR }' SHA256SUMS) &&
+				LC_ALL=C sha256sum -c SHA256SUMS | verified_files "$total") &&
+			phase verify-files 'done' && phase activate-assets running &&
 			rm -rf "${mnt:?}/$STOCK_DIR" &&
 			mv "$mnt/$STOCK_DIR.new" "$mnt/$STOCK_DIR"
 	} || rc=1
@@ -238,11 +391,23 @@ stock() {
 	got=$(sha256 < "$mnt/$STOCK_DIR/manifest.json" 2>/dev/null)
 	umount "$mnt" || rc=1
 	sync
-	readonly_again "$dev"
+	readonly_again "$dev" || die "read-only restoration of userdata failed"
 	rm -f "$archive"
 	[ $rc = 0 ] || die "writing PICO OS's files to userdata failed"
 	log "install: PICO OS's files on userdata, manifest $got"
 	echo "stock $got"
+}
+
+verified_files() {
+	local total=$1 line n=0 shown=0
+	while IFS= read -r line; do
+		case "$line" in *': OK') n=$((n + 1)) ;; esac
+		if [ "$((n - shown))" -ge 8 ] || { [ "$n" -gt "$shown" ] && [ "$n" -eq "$total" ]; }; then
+			task_phase verify-files running "$n" "$total" files local-verified-files || return
+			shown=$n
+		fi
+	done
+	[ "$total" -gt 0 ] && [ "$n" -eq "$total" ]
 }
 
 # data_ro DIR: the data partition (pico4-data) mounted read-only at DIR, without a journal replay.
@@ -251,19 +416,21 @@ data_ro() {
 	dev=$(readlink -f /dev/block/by-name/userdata 2>/dev/null)
 	[ -b "$dev" ] && [ "$(ext_label "$dev" 2>/dev/null)" = pico4-data ] || return 1
 	mkdir -p "$1"
-	mount -t ext4 -o ro,noload "$dev" "$1"
+	mount -t ext4 -o ro,noload "$dev" "$1" || return 1
+	ACTIVE_MOUNTS="$ACTIVE_MOUNTS $1"
 }
 
 stock_hash() {
 	local size="" dev mnt=$STATE/data-ro got
 	[ "$1" = --size ] && size=$2
 	[ -n "$size" ] || die "stock-hash needs --size"
-	dev=$(partition userdata "$size")
+	dev=$(partition userdata "$size") || die "partition check failed"
 	[ "$(ext_label "$dev" 2>/dev/null)" = pico4-data ] || { echo none; return 0; }
 	mkdir -p "$mnt"
 	mount -t ext4 -o ro,noload "$dev" "$mnt" || die "mounting userdata read-only failed"
-	got=$(sha256 < "$mnt/$STOCK_DIR/manifest.json" 2>/dev/null)
-	umount "$mnt"
+	ACTIVE_MOUNTS="$ACTIVE_MOUNTS $mnt"
+	got=$(sha256 2>/dev/null < "$mnt/$STOCK_DIR/manifest.json")
+	umount "$mnt" || die "could not unmount $mnt"
 	echo "${got:-none}"
 }
 
@@ -271,7 +438,7 @@ stock_hash() {
 BUILD_DIR=var/tmp/pico4-build
 
 build() {
-	local size="" epoch="" commit="" proxy="" now="" dev mnt=$STATE/data rc=0
+	local size="" epoch="" commit="" proxy="" now="" dev mnt=$STATE/data rc=0 progress_dir reader
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--size) size=$2; shift ;;
@@ -289,7 +456,7 @@ build() {
 	case "$proxy" in '' | socks5h://127.0.0.1:[0-9]*) ;; *) die "--proxy takes socks5h://127.0.0.1:PORT" ;; esac
 	command -v curl >/dev/null && tar --version 2>/dev/null | grep -q GNU ||
 		die "curl or GNU tar missing from this image (rebuild stage 1)"
-	dev=$(partition userdata "$size")
+	dev=$(partition userdata "$size") || die "partition check failed"
 	[ "$(ext_label "$dev")" = pico4-data ] || die "userdata holds no pico4-data file system"
 	# This system starts in 1970 (no network time): HTTPS needs the PC's clock. Only the system time.
 	[ -z "$now" ] || date -u -s "@$now" > /dev/null || die "could not set the clock"
@@ -298,21 +465,52 @@ build() {
 	mount_data "$dev" "$mnt"
 	# The PC waits for the build: its contact (recovery-watch's maximum runtime) stays renewed while
 	# this runs, and ends with it.
-	(while kill -0 $$ 2>/dev/null; do cut -d. -f1 /proc/uptime > "$OP_RUN/host-contact"; sleep 30; done) &
+	(while kill -0 $$ 2>/dev/null; do cut -d. -f1 /proc/uptime > "$OP_RUN/host-contact"; sleep 30; done) \
+		</dev/null >/dev/null 2>&1 9>&- &
+	CONTACT_PID=$!
 	log "install: building the system on userdata ($commit)"
 	{
 		rm -rf "${mnt:?}/$BUILD_DIR/src" &&
 			mkdir -p "$mnt/$BUILD_DIR/src" &&
-			tar -xzf - -C "$mnt/$BUILD_DIR/src" &&
-			SOURCE_DATE_EPOCH=$epoch OVERPRESSURE_COMMIT=$commit ALL_PROXY=$proxy \
-				sh "$mnt/$BUILD_DIR/src/devices/phoenix/scripts/build-on-headset.sh" "$mnt/$BUILD_DIR"
+			tar -xzf - -C "$mnt/$BUILD_DIR/src"
 	} || rc=1
-	sync
+	if [ "$rc" = 0 ]; then
+		phase source 'done'
+		phase host-env running
+		progress_dir=$(mktemp -d "$STATE/progress.XXXXXX") || die "could not create build progress directory"
+		mkfifo "$progress_dir/events" || die "could not create build progress channel"
+		build_progress < "$progress_dir/events" &
+		reader=$!
+		SOURCE_DATE_EPOCH=$epoch OVERPRESSURE_COMMIT=$commit ALL_PROXY=$proxy OVERPRESSURE_BUILD_PROGRESS=1 \
+			sh "$mnt/$BUILD_DIR/src/devices/phoenix/scripts/build-on-headset.sh" "$mnt/$BUILD_DIR" \
+			3>"$progress_dir/events" 9>&- || rc=$?
+		wait "$reader" || rc=1
+		rm -rf "$progress_dir"
+	fi
+	sync || rc=1
 	umount "$mnt" || { umount -l "$mnt"; rc=1; }
-	readonly_again "$dev"
+	readonly_again "$dev" || die "read-only restoration of userdata failed"
 	[ $rc = 0 ] || die "the build on userdata failed"
 	log "install: built the system on userdata"
 	echo "built"
+}
+
+build_progress() {
+	local id state completed total unit source extra bad=0
+	while IFS=' ' read -r id state completed total unit source extra; do
+		case "$id" in
+		host-env | holo | holo-verify | holo-cache | repos | package-fetch | package-cache | package-install | \
+		image-root | project-pkgs | elf | adapt | archive | filesystem | fsck | image-hash | compress) ;;
+		*) continue ;;
+		esac
+		[ -z "$extra" ] || continue
+		if [ -z "$completed$total$unit$source" ]; then
+			task_phase "$id" "$state" || bad=1
+		else
+			task_phase "$id" "$state" "$completed" "$total" "$unit" "$source" || bad=1
+		fi
+	done
+	return "$bad"
 }
 
 build_file() {
@@ -322,10 +520,10 @@ build_file() {
 	case "$name" in out/pico4-system.img.json | out/pico4-userspace.manifest.json) ;;
 	*) die "build-file reads out/pico4-system.img.json or out/pico4-userspace.manifest.json" ;;
 	esac
-	partition userdata "$size" > /dev/null
+	partition userdata "$size" > /dev/null || die "partition check failed"
 	data_ro "$mnt" || die "userdata holds no pico4-data file system"
 	cat "$mnt/$BUILD_DIR/$name" || rc=1
-	umount "$mnt"
+	umount "$mnt" || die "could not unmount $mnt"
 	[ $rc = 0 ] || die "no $name on userdata"
 }
 
@@ -334,13 +532,13 @@ wipe() {
 	case "$name" in userdata | metadata) ;; *) die "wipe refuses $name (userdata or metadata only)" ;; esac
 	[ "$2" = --size ] && size=$3
 	[ -n "$size" ] || die "wipe needs --size"
-	dev=$(partition "$name" "$size")
+	dev=$(partition "$name" "$size") || die "partition check failed"
 	[ "$size" -ge $((mib << 20)) ] || mib=$((size >> 20))
 	writable "$dev"
 	dd if=/dev/zero of="$dev" bs=1M count="$mib" conv=fsync 2>/dev/null
 	local rc=$?
 	sync
-	readonly_again "$dev"
+	readonly_again "$dev" || die "read-only restoration of $name failed"
 	[ $rc = 0 ] || die "wiping $name failed"
 	echo 3 > /proc/sys/vm/drop_caches
 	[ "$(head -c $((mib << 20)) "$dev" | tr -d '\000' | head -c 1 | wc -c)" = 0 ] || die "readback of $name is not zero"
@@ -350,6 +548,7 @@ wipe() {
 
 bootmode() {
 	local dev want got
+	if [ "$1" = normal ]; then phase misc-write running; fi
 	dev=$(readlink -f /dev/block/by-name/misc 2>/dev/null)
 	[ -b "$dev" ] || die "no misc partition"
 	mkdir -p "$STATE"
@@ -363,8 +562,9 @@ bootmode() {
 	dd if="$STATE/bcb" of="$dev" bs=$BCB_BYTES count=1 conv=fsync,notrunc 2>/dev/null
 	local rc=$?
 	sync
-	readonly_again "$dev"
+	readonly_again "$dev" || die "read-only restoration of misc failed"
 	[ $rc = 0 ] || die "writing misc failed"
+	if [ "$1" = normal ]; then phase misc-write 'done'; phase misc-check running; fi
 	echo 3 > /proc/sys/vm/drop_caches
 	got=$(head -c $BCB_BYTES "$dev" | sha256)
 	[ "$got" = "$want" ] || die "readback of misc differs"
@@ -373,11 +573,18 @@ bootmode() {
 }
 
 hash() {
-	local name=$1 bytes=$2 dev
+	local name=$1 bytes=$2 id=${3:-} dev
+	case "$name" in '' | *[!A-Za-z0-9._-]*) die "hash needs a by-name partition, not a path" ;; esac
 	case "$bytes" in '' | *[!0-9]*) die "hash needs a partition and a byte count" ;; esac
 	dev=$(readlink -f "/dev/block/by-name/$name" 2>/dev/null)
 	[ -b "$dev" ] || die "no partition $name"
-	read_part "$dev" "$bytes" | sha256
+	[ "$bytes" -gt 0 ] && [ "$bytes" -le "$(blockdev --getsize64 "$dev")" ] || die "hash byte count exceeds $name"
+	case "$id:$name" in
+	:*) ;;
+	existing-hash:boot | existing-hash:super) ;;
+	*) die "invalid progress label for $name" ;;
+	esac
+	read_for_hash "$dev" "$bytes" "$id" | sha256
 }
 
 status() {
@@ -391,6 +598,43 @@ status() {
 }
 
 case "${1:-}" in
+write | format-data | keys | stock | stock-hash | build | build-file | hash | wipe | bootmode | status) ;;
+*) sed -n '3,43s/^# \{0,1\}//p' "$0"; exit 2 ;;
+esac
+# Periodic identity checks never take a lock or replace the active task.
+if [ "$1" = status ]; then
+	[ "$#" = 1 ] || exit 2
+	status
+	exit $?
+fi
+(umask 077; mkdir -p "$STATE") || die "could not prepare private installer state"
+if [ "${PICO4_WORKFLOW:-0}" = 1 ]; then
+	[ "/proc/$$/fd/9" -ef "$OP_RUN/install.lock" ] && flock -n 9 || die "no inherited workflow lock"
+else
+	task_private_file "$OP_RUN/install.lock" || die "could not prepare installer lock"
+	exec 9<> "$OP_RUN/install.lock"
+	flock -n 9 || die "another task owns install.lock"
+	task_private_file "$OP_RUN/task.log" || die "could not prepare task log"
+	: > "$OP_RUN/task.log" || die "could not reset task log"
+	case "$1" in
+	write) task_name='Write image' ;;
+	format-data) task_name='Format data partition' ;;
+	keys) task_name='Configure public keys' ;;
+	stock) task_name='Install local factory assets' ;;
+	stock-hash) task_name='Verify local factory assets' ;;
+	build) task_name='On-device build' ;;
+	build-file) task_name='Read build file' ;;
+	hash) task_name='Compute partition SHA-256' ;;
+	wipe) task_name='Clear system data' ;;
+	bootmode) task_name='Set boot selection' ;;
+	esac
+	task_init single "install-$$" "$task_name" || die "could not initialize task state"
+	task_stage 0 running 'Backend command running' || die "could not publish task state"
+fi
+trap cleanup EXIT
+trap 'die "interrupted"' HUP INT TERM
+
+case "$1" in
 write) shift; write "$@" ;;
 format-data) shift; format_data "$@" ;;
 keys) shift; keys "$@" ;;
@@ -398,7 +642,7 @@ stock) shift; stock "$@" ;;
 stock-hash) shift; stock_hash "$@" ;;
 build) shift; build "$@" ;;
 build-file) shift; build_file "$@" ;;
-hash) hash "$2" "$3" ;;
+hash) hash "$2" "$3" "${4:-}" ;;
 wipe) shift; wipe "$@" ;;
 bootmode) bootmode "$2" ;;
 status) status ;;

@@ -1,0 +1,507 @@
+#!/bin/sh
+# SPDX-License-Identifier: Unlicense
+# Fixed task-state adapter and workflow broker. No eval, command strings or JSON input.
+# Invoked with sh; also sourced by pico4-install with PICO4_TASK_SOURCE=1.
+
+TASK_RUN=/run/overpressure
+TASK_DIR=$TASK_RUN/task-state.d
+
+task_private_file() {
+	(umask 077; : >> "$1")
+}
+
+task_quote() {
+	# Escape every JSON control byte, including embedded newlines, without jq.
+	printf '%s' "$1" | od -An -v -tu1 | LC_ALL=C awk '
+	BEGIN { printf "\"" }
+	{ for (i=1; i<=NF; i++) {
+		n=$i+0
+		if (n==34 || n==92) printf "\\%c", n
+		else if (n<32) printf "\\u%04x", n
+		else printf "%c", n
+	} }
+	END { printf "\"" }'
+}
+
+task_publish() {
+	local i=0 tmp count
+	tmp=$(mktemp "$TASK_RUN/.task.json.XXXXXX") || return 1
+	count=$(cat "$TASK_DIR/count")
+	{
+		printf '{"id":'; cat "$TASK_DIR/id"
+		printf ',"name":'; cat "$TASK_DIR/name"
+		printf ',"kind":"%s"' "$(cat "$TASK_DIR/kind")"
+		printf ',"status":"%s","detail":' "$(cat "$TASK_DIR/status")"; cat "$TASK_DIR/detail"
+		printf ',"error":'; cat "$TASK_DIR/error"
+		printf ',"active":%s,"locked":%s,"readonly_restored":%s,"stages":[' \
+			"$(cat "$TASK_DIR/active")" "$(cat "$TASK_DIR/locked")" "$(cat "$TASK_DIR/readonly")"
+		while [ "$i" -lt "$count" ]; do
+			[ "$i" = 0 ] || printf ','
+			cat "$TASK_DIR/stage.$i"
+			i=$((i + 1))
+		done
+		printf ']}\n'
+	} > "$tmp" && mv -f "$tmp" "$TASK_RUN/task.json"
+	local rc=$?
+	[ "$rc" = 0 ] || rm -f "$tmp"
+	return "$rc"
+}
+
+task_render_stage() {
+	local i=$1
+	{
+		printf '{"id":"%s","name":' "$(cat "$TASK_DIR/id.$i")"; cat "$TASK_DIR/name.$i"
+		printf ',"status":"%s","state":"%s","detail":' "$2" "$2"; cat "$TASK_DIR/detail.$i"
+		if [ -f "$TASK_DIR/plan.$i" ]; then
+			LC_ALL=C awk -F '|' '
+				BEGIN { printf ",\"substeps\":[" }
+				{
+					if (NR > 1) printf ","
+					printf "{\"id\":\"%s\",\"name\":\"%s\",\"status\":\"%s\",\"weight\":%s", $1,$2,$4,$3
+					if (NF == 8)
+						printf ",\"measured\":true,\"done\":%s,\"total\":%s,\"unit\":\"%s\",\"progress_source\":\"%s\",\"progress_trusted\":true", $5,$6,$7,$8
+					else if ($1 ~ /^(write|read|existing-hash|receive-assets|verify-files|holo|package-install|fsck|image-hash|compress)$/)
+						printf ",\"measured\":true"
+					else printf ",\"measured\":false"
+					printf "}"
+				}
+				END { printf "]" }' "$TASK_DIR/plan.$i"
+		fi
+		printf '}'
+	} > "$TASK_DIR/stage.$i"
+}
+
+# Planned seconds from timing-evidence.md. Zero-weight choices are selected by
+# the producer once the route is known, not by interpreting elapsed time.
+task_plan() {
+	local id=$1 kind=$2 write flush read digest
+	case "$id" in
+	check) printf '%s\n' 'check|Check inputs and device|1.25' ;;
+	build-data | data) printf '%s\n' 'label|Check userdata label|0.6' 'format|Create ext4|4.4' \
+		'settle|Sync and restore read-only protection|1' 'label-ok|Verify userdata label|0.4' 'keep|Keep userdata|0' ;;
+	boot | super)
+		case "$id:$kind" in
+		boot:*) write=1.9 flush=0.3 read=0.14 digest=0.025 ;;
+		super:headset) write=43 flush=3 read=28 digest=0.5 ;;
+		*) write=190 flush=2.14 read=29.2 digest=0.23 ;;
+		esac
+		printf '%s\n' "inspect|Check image and partition|$([ "$id" = boot ] && echo 0.5 || echo 0.8)" \
+			'existing-hash|Read back existing image|0' 'no-write|Keep matching image|0' \
+			"write|Write image|$write" "flush|Sync disk|$flush" "read|Read back for SHA-256|$read" "digest|Confirm SHA-256|$digest"
+		;;
+	build) printf '%s\n' 'source|Receive and extract build source|2' 'host-env|Prepare build environment|4' \
+		'holo|Download Holo Core|35' 'holo-verify|Verify and extract Holo Core|8' 'holo-cache|Use cached Holo Core|0' \
+		'repos|Prepare repositories|7' 'package-fetch|Download missing packages|4' 'package-cache|Use cached package inputs|0' \
+		'package-install|Install base packages|63' 'image-root|Assemble image root|0.5' 'project-pkgs|Install project packages|0.5' \
+		'elf|Check ELF dependencies|11' 'adapt|Apply PICO 4 adaptation|5' 'archive|Write userspace archive and manifest|147' \
+		'filesystem|Create ext4 image|32' 'fsck|Check ext4|18' 'image-hash|Calculate image SHA-256|29' \
+		'compress|Compress system image|125' 'record|Receive image record and manifest|2' ;;
+	keys) if [ "$kind" = headset ]; then write=2.1 read=1.3; else write=0.7 read=0.55; fi
+		printf '%s\n' "keys|Write public keys and install ID|$write" "keys-ok|Confirm public keys and install ID|$read" ;;
+	assets) printf '%s\n' 'manifest|Check asset manifest|1' 'resources-keep|Keep matching assets|0' \
+		'receive-assets|Receive asset archive|19' 'archive-hash|Check archive SHA-256|0.8' \
+		'extract-assets|Extract verified archive|2' 'verify-files|Verify asset files|1.2' 'activate-assets|Commit and confirm assets|0.8' ;;
+	finish) printf '%s\n' 'retain|Confirm Recovery boot selection|1.3' 'misc-write|Set normal boot selection|0' \
+		'misc-check|Read back boot selection|0' 'handoff|Leave Recovery; first boot unverified|0' ;;
+	esac
+}
+
+# Only the broker's owner or its executing child modifies the plan. Counter
+# monitors are joined before the producer emits its next phase boundary.
+task_phase() {
+	[ "$#" -ge 2 ] || return 2
+	local id=$1 state=$2 index file tmp parent summary
+	shift 2
+	case "$state:$id" in
+	prefetch:source | running:* | waiting:* | done:* | skipped:* | error:* | reset:*) ;;
+	*) return 2 ;;
+	esac
+	index=$(cat "$TASK_DIR/active")
+	file=$TASK_DIR/plan.$index
+	[ -f "$file" ] || return 0 # standalone commands and restore keep legacy stages
+	parent=$(cat "$TASK_DIR/id.$index")
+	case "$#" in
+	0) ;;
+	4)
+		case "$1" in '' | *[!0-9]*) return 2 ;; esac
+		case "$2" in '' | *[!0-9]*) return 2 ;; esac
+		[ "${#1}" -le 15 ] && [ "${#2}" -le 15 ] || return 2
+		[ "$2" -gt 0 ] && [ "$1" -le "$2" ] || return 2
+		case "$3:$4" in
+		bytes:local-written-bytes | bytes:local-readback-bytes | bytes:local-received-bytes | \
+		bytes:local-download-bytes | bytes:local-processed-bytes | files:local-verified-files | \
+		packages:local-package-count | percent:local-check-progress) ;;
+		*) return 2 ;;
+		esac
+		;;
+	*) return 2 ;;
+	esac
+	tmp=$(mktemp "$TASK_DIR/.phase.XXXXXX") || return 1
+	if ! LC_ALL=C awk -F '|' -v OFS='|' -v id="$id" -v state="$state" -v parent="$parent" \
+		-v done="${1:-}" -v total="${2:-}" -v unit="${3:-}" -v source="${4:-}" '
+		{
+			if ($1 == "read") read_weight=$3
+			if ($1 == id) {
+				found=1
+				if (done != "") {
+					if (($4 != "running" && $4 != "waiting") || (NF == 8 && \
+					    (done+0 < $5+0 || total+0 != $6+0 || unit != $7 || source != $8))) { invalid=1; exit 2 }
+					$5=sprintf("%.0f", done); $6=sprintf("%.0f", total); $7=unit; $8=source
+				}
+				if (state == "prefetch") $3=120
+				else if (state == "reset") { NF=4; $4="running" }
+				else {
+					$4=state
+					if (state == "done" && NF == 8) $5=$6
+				}
+			}
+			line[NR]=$0
+		}
+		END {
+			if (!found || invalid) exit 2
+			for (i=1; i<=NR; i++) {
+				n=split(line[i], f, FS)
+				p=f[1]; w=f[3]; s=f[4]
+				if (id == "existing-hash" && p == id) w=read_weight
+				if (id == "no-write") {
+					if (p == id) w=0.15
+					if (p ~ /^(write|flush|read|digest)$/) { w=0; s="skipped" }
+				}
+				if (id == "write" && p ~ /^(existing-hash|no-write)$/ && s == "pending") s="skipped"
+				if (id == "keep") {
+					if (p == id) w=0.15
+					if (p ~ /^(format|settle|label-ok)$/) { w=0; s="skipped" }
+				}
+				if (id == "format" && p == "keep") s="skipped"
+				if (id == "holo" && p == "package-fetch") w=180
+				if (id == "holo" && state == "skipped" && p == id) w=0
+				if (id == "holo" && state == "skipped" && p == "package-fetch") w=4
+				if (id == "holo-cache") {
+					if (p == id) w=0.25
+					if (p ~ /^(holo|holo-verify)$/) { w=0; s="skipped" }
+				}
+				if (id == "holo-verify" && p == "holo-cache") s="skipped"
+				if (id == "package-cache") {
+					if (p == id) w=0.25
+					if (p == "package-fetch" && s == "pending") { w=0; s="skipped" }
+					if (p == "package-install") { w=0; s="skipped" }
+				}
+				if (id == "package-fetch" && p == "package-cache") s="skipped"
+				if (id == "resources-keep") {
+					if (p == id) w=0.25
+					if (p ~ /^(receive-assets|archive-hash|extract-assets|verify-files|activate-assets)$/) { w=0; s="skipped" }
+				}
+				if (id == "receive-assets" && p == "resources-keep") s="skipped"
+				if (id == "misc-write" && parent == "finish") {
+					if (p == "retain") { w=0; s="skipped" }
+					if (p ~ /^misc-/) w=0.5
+					if (p == "handoff") w=1
+				}
+				if (id == "retain" && p ~ /^(misc-write|misc-check|handoff)$/) s="skipped"
+				printf "%s|%s|%s|%s", p,f[2],w,s
+				for (j=5;j<=n;j++) printf "|%s",f[j]
+				printf "\n"
+			}
+		}' "$file" > "$tmp" || ! mv -f "$tmp" "$file"; then
+		rm -f "$tmp"
+		return 2
+	fi
+	task_render_stage "$index" "$(cat "$TASK_DIR/status.$index")" && task_publish || return 1
+	case "$state:$#" in
+	running:0 | waiting:0 | error:0)
+		summary=$(LC_ALL=C awk -F '|' -v id="$id" '$1 == id {print $2; exit}' "$file")
+		printf '[%s] %s\n' "$state" "$summary" >> "$TASK_RUN/task.log"
+		;;
+	esac
+}
+
+# Built-in log details are English; preserve older hosts' text as sent.
+task_stage() {
+	local index=$1 state=$2 detail=${3:-}
+	case "$index" in '' | *[!0-9]*) return 2 ;; esac
+	[ "$index" -lt "$(cat "$TASK_DIR/count")" ] || return 2
+	case "$state" in pending | running | waiting | done | skipped | error) ;; *) return 2 ;; esac
+	printf '%s' "$state" > "$TASK_DIR/status.$index"
+	task_quote "$detail" > "$TASK_DIR/detail.$index"
+	task_render_stage "$index" "$state" || return 1
+	printf '%s' "$index" > "$TASK_DIR/active"
+	task_quote "$detail" > "$TASK_DIR/detail"
+	task_publish || return 1
+	[ -z "$detail" ] || printf '[%s] %s\n' "$state" "$detail" >> "$TASK_RUN/task.log"
+}
+
+task_init() (
+	local kind=$1 id=$2 name=$3 i=0 label stage ids=""
+	umask 077
+	mkdir -p "$TASK_DIR" || return 1
+	task_quote "$id" > "$TASK_DIR/id"
+	task_quote "$name" > "$TASK_DIR/name"
+	printf running > "$TASK_DIR/status"
+	printf true > "$TASK_DIR/locked"
+	printf false > "$TASK_DIR/readonly"
+	printf 0 > "$TASK_DIR/active"
+	printf '""' > "$TASK_DIR/detail"
+	printf '""' > "$TASK_DIR/error"
+	case "$kind" in
+	host) ids='check boot super data keys assets finish'
+		set -- 'Check inputs and device' 'Boot image' 'System image' 'Prepare user data' 'Public keys and install ID' 'System assets' 'Recovery boot selection' ;;
+	headset) ids='check build-data build boot super data keys assets finish'
+		set -- 'Check inputs and device' 'Prepare build data' 'On-device build' 'Boot image' 'System image' 'Prepare user data' 'Public keys and install ID' 'System assets' 'Recovery boot selection' ;;
+	restore) set -- 'Check backup and device' 'Restore and verify super' 'Restore and verify boot' 'Prepare userdata' 'Prepare metadata' 'Select normal boot' 'Restore Recovery through host fastboot' ;;
+	single) set -- "$name" ;;
+	*) return 2 ;;
+	esac
+	printf '%s' "$kind" > "$TASK_DIR/kind"
+	printf '%s' "$#" > "$TASK_DIR/count"
+	for label do
+		stage=${ids%% *}
+		if [ -n "$stage" ]; then
+			ids=${ids#"$stage"}
+			ids=${ids# }
+			task_plan "$stage" "$kind" | sed 's/$/|pending/' > "$TASK_DIR/plan.$i"
+		else
+			stage=stage-$i
+			rm -f "$TASK_DIR/plan.$i"
+		fi
+		printf '%s' "$stage" > "$TASK_DIR/id.$i"
+		task_quote "$label" > "$TASK_DIR/name.$i"
+		printf pending > "$TASK_DIR/status.$i"
+		printf '""' > "$TASK_DIR/detail.$i"
+		task_render_stage "$i" pending || return 1
+		i=$((i + 1))
+	done
+	task_publish
+)
+
+task_detail() {
+	task_stage "$(cat "$TASK_DIR/active")" running "$1"
+}
+
+task_readonly() {
+	case "$1" in true | false) ;; *) return 2 ;; esac
+	printf '%s' "$1" > "$TASK_DIR/readonly"
+	task_publish
+}
+
+task_ro_check() {
+	local path found=0
+	for path in /sys/class/block/sd*/ro /sys/class/block/mmcblk*/ro /sys/class/block/nvme*/ro; do
+		[ -f "$path" ] || continue
+		found=1
+		[ "$(cat "$path")" = 1 ] || return 1
+	done
+	[ "$found" = 1 ]
+}
+
+task_finish() {
+	local status=$1 detail=${2:-} index active
+	case "$status" in done | error | waiting) ;; *) return 2 ;; esac
+	printf '%s' "$status" > "$TASK_DIR/status"
+	task_quote "$detail" > "$TASK_DIR/detail"
+	if [ "$status" = error ]; then
+		task_quote "$detail" > "$TASK_DIR/error"
+		index=$(cat "$TASK_DIR/active")
+		if [ -f "$TASK_DIR/plan.$index" ]; then
+			active=$(awk -F '|' '$4 == "running" || $4 == "waiting" { print $1; exit }' "$TASK_DIR/plan.$index")
+			[ -z "$active" ] || task_phase "$active" error || return 1
+		fi
+		task_stage "$index" error "$detail" || return 1
+	fi
+	task_publish
+}
+
+task_token() {
+	case "$1" in '' | *[!a-f0-9]*) return 2 ;; esac
+	[ "${#1}" = 32 ]
+}
+
+task_request() {
+	local token=$1 operation=$2 dir owner=$TASK_RUN/task-owner i=0 arg feeder streams=0
+	shift 2
+	task_token "$token" || return 2
+	[ "$(cat "$owner/token" 2>/dev/null)" = "$token" ] || return 1
+	kill -0 "$(cat "$owner/pid" 2>/dev/null)" 2>/dev/null || return 1
+	dir=$(mktemp -d "$owner/request.XXXXXX") || return 1
+	printf '%s' "$operation" > "$dir/operation"
+	printf '%s' "$#" > "$dir/count"
+	for arg do
+		printf '%s' "$arg" > "$dir/arg.$i"
+		i=$((i + 1))
+	done
+	mkfifo "$dir/input" "$dir/output" || return 1
+	printf '%s\n' "${dir##*/}" > "$owner/queue" || return 1
+	# Control requests and read-only operations open an empty FIFO without
+	# waiting for SSH stdin to close. Some clients leave it open.
+	if [ "$operation" = run ]; then
+		case "${1:-}" in
+		write)
+			streams=1
+			for arg do
+				[ "$arg" != --from-data ] || streams=0
+			done
+			;;
+		build | keys | stock) streams=1 ;;
+		esac
+	fi
+	if [ "$streams" = 1 ]; then
+		# ash replaces fd 0 for asynchronous jobs before their redirections.
+		exec 7<&0
+		cat > "$dir/input" <&7 &
+		feeder=$!
+		exec 7<&-
+	else
+		: > "$dir/input" &
+		feeder=$!
+	fi
+	cat "$dir/output"
+	# The native command has closed its output. It may have rejected the
+	# request before reading all (or any) of its input.
+	[ "$streams" = 0 ] || kill "$feeder" 2>/dev/null || true
+	wait "$feeder" 2>/dev/null || true
+	local rc
+	while [ ! -f "$dir/rc" ]; do sleep 0.05; done
+	rc=$(cat "$dir/rc")
+	rm -rf "$dir"
+	return "$rc"
+}
+
+task_hold() {
+	local token=$1 kind=$2 owner=$TASK_RUN/task-owner request operation arg rc watcher logger i
+	task_token "$token" || return 2
+	case "$kind" in host | headset | restore) ;; *) return 2 ;; esac
+	mkdir -p "$TASK_RUN"
+	task_private_file "$TASK_RUN/install.lock" || return 1
+	exec 9<> "$TASK_RUN/install.lock"
+	flock -n 9 || { echo 'task: another task owns install.lock' >&2; return 1; }
+	task_private_file "$TASK_RUN/task.log" || return 1
+	: > "$TASK_RUN/task.log" || return 1
+	rm -rf "$owner"
+	(umask 077; mkdir "$owner") || return 1
+	printf '%s' "$token" > "$owner/token"
+	printf '%s' "$$" > "$owner/pid"
+	mkfifo "$owner/queue" || return 1
+	task_init "$kind" "$token" "$([ "$kind" = restore ] && printf 'Factory restore' || printf 'System installation')" || return 1
+	task_stage 0 running 'Checking inputs and device' && task_phase check running || return 1
+	exec 8<> "$owner/queue"
+	# Keep the actual SSH stdin open until EOF; fd 0 of an ash background job
+	# defaults to /dev/null. Queue the stop behind any executing child.
+	exec 7<&0
+	(cat <&7 > /dev/null; printf 'stop\n' >&8) &
+	watcher=$!
+	exec 7<&-
+	printf 'locked %s\n' "$token"
+	while IFS= read -r request <&8; do
+		[ "$request" != stop ] || break
+		case "$request" in request.*) ;; *) continue ;; esac
+		case "$request" in *[!A-Za-z0-9.]* ) continue ;; esac
+		[ -f "$owner/$request/operation" ] || continue
+		set --
+		operation=$(cat "$owner/$request/operation")
+		i=0
+		while [ "$i" -lt "$(cat "$owner/$request/count")" ]; do
+			arg=$(cat "$owner/$request/arg.$i"; printf '.')
+			arg=${arg%.}
+			set -- "$@" "$arg"
+			i=$((i + 1))
+		done
+		rc=0
+		{
+			case "$operation" in
+			run)
+				case "${1:-}" in
+				write | format-data | keys | stock | stock-hash | build | build-file | hash | wipe | bootmode | status)
+					mkfifo "$owner/$request/log"
+					tee -a "$TASK_RUN/task.log" < "$owner/$request/log" &
+					logger=$!
+					PICO4_WORKFLOW=1 sh /usr/bin/pico4-install "$@" > "$owner/$request/log" 2>&1 || rc=$?
+					wait "$logger" || rc=1
+					rm -f "$owner/$request/log"
+					;;
+				*) rc=2 ;;
+				esac
+				;;
+			stage) task_stage "$@" || rc=$? ;;
+			phase) task_phase "$@" || rc=$? ;;
+			finish) task_finish "$@" || rc=$? ;;
+			*) rc=2 ;;
+			esac
+		} < "$owner/$request/input" > "$owner/$request/output" 2>&1
+		printf '%s' "$rc" > "$owner/$request/rc"
+	done
+	kill "$watcher" 2>/dev/null || true
+	wait "$watcher" 2>/dev/null || true
+	if [ "$(cat "$TASK_DIR/status")" = running ]; then
+		task_finish error 'Host workflow disconnected; see the original log'
+	fi
+	if task_ro_check; then task_readonly true; else task_readonly false; fi
+	printf false > "$TASK_DIR/locked"
+	task_publish
+	rm -rf "$owner"
+}
+
+task_single() {
+	local action=$1 arg=${2:-} name rc=0 bytes dev type
+	case "$action" in
+	probe) [ -z "$arg" ] || return 2; name='Collect hardware inventory' ;;
+	hash | mount | umount)
+		case "$arg" in '' | *[!A-Za-z0-9._-]* | . | ..) return 2 ;; esac
+		dev=$(readlink -f "/dev/block/by-name/$arg") || return 1
+		[ -b "$dev" ] || return 1
+		name="$([ "$action" = hash ] && printf 'Partition SHA-256' || printf 'Read-only mount status'): $arg"
+		;;
+	bootmode) case "$arg" in normal | recovery) ;; *) return 2 ;; esac; name='Set boot selection' ;;
+	power | reboot) case "$arg" in normal | bootloader | recovery | poweroff) ;; *) return 2 ;; esac; name='Power and startup' ;;
+	*) return 2 ;;
+	esac
+	[ "/proc/$$/fd/9" -ef "$TASK_RUN/install.lock" ] && flock -n 9 || return 1
+	task_init single "ui-$$" "$name" && task_stage 0 running 'Backend command running; progress unknown' || return 1
+	{
+		case "$action" in
+		probe) sh /usr/bin/pico4-probe ;;
+		hash)
+			bytes=$(blockdev --getsize64 "$dev") &&
+				PICO4_WORKFLOW=1 sh /usr/bin/pico4-install hash "$arg" "$bytes"
+			;;
+		mount)
+			type=$(blkid "$dev" | sed -n 's/.* TYPE="\([^"]*\)".*/\1/p')
+			case "$type" in ext2 | ext3 | ext4 | f2fs | vfat | squashfs | erofs)
+				sh /usr/bin/overpressure-mount-ro "$arg" "/mnt/$arg" ;;
+			*) echo 'unsupported filesystem' >&2; false ;;
+			esac
+			;;
+		umount) umount "/mnt/$arg" ;;
+		bootmode) PICO4_WORKFLOW=1 sh /usr/bin/pico4-install bootmode "$arg" ;;
+		power | reboot)
+			if [ "$arg" = normal ]; then
+				PICO4_WORKFLOW=1 sh /usr/bin/pico4-install bootmode normal || rc=$?
+			fi
+			if [ "$rc" = 0 ]; then
+				task_finish waiting 'Leaving Recovery; next boot has not been verified' || rc=$?
+				if [ "$rc" = 0 ]; then
+					case "$arg" in normal) /usr/sbin/pico4-reboot ;; *) /usr/sbin/pico4-reboot "$arg" ;; esac
+				else false
+				fi
+			else false
+			fi
+			;;
+		esac
+	} || rc=$?
+	if [ "$rc" = 0 ]; then
+		task_stage 0 'done' 'Backend command completed' && task_finish 'done' 'Backend command completed' || rc=1
+	else
+		task_finish error 'Backend command failed; see the original task log'
+	fi
+	if task_ro_check; then task_readonly true; else task_readonly false; fi
+	printf false > "$TASK_DIR/locked"
+	task_publish || rc=1
+	return "$rc"
+}
+
+if [ "${PICO4_TASK_SOURCE:-0}" != 1 ]; then
+	case "${1:-}" in
+	hold) [ "$#" = 3 ] && task_hold "$2" "$3" ;;
+	run | stage | phase | finish) operation=$1; shift; token=$1; shift; task_request "$token" "$operation" "$@" ;;
+	single) [ "$#" -ge 2 ] && [ "$#" -le 3 ] && task_single "$2" "${3:-}" ;;
+	*) echo 'usage: task-state hold TOKEN host|headset|restore; run|stage|phase|finish TOKEN ARGS...' >&2; exit 2 ;;
+	esac
+fi

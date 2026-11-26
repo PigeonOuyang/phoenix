@@ -3,5 +3,8 @@
 * text=auto eol=lf
 *.cmd text eol=crlf
 prebuilt/** binary
+# Pinned Breeze originals must retain the bytes authenticated by their manifest.
+src/recovery-ui/breeze/original/** -text
+src/recovery-ui/breeze/COPYING-ICONS -text
 # A release zip (git archive) fills in the commit and its time: the zip has no Git.
 headset.json export-subst

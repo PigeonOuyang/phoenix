@@ -8,18 +8,20 @@ import hashlib
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tarfile
 import tempfile
 import unittest
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
-from typing import IO, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, cast
 from unittest.mock import patch
 
-from devices.phoenix.tooling import HEADSET, cycle, device, devloop, localconfig
-from overpressure.api.v1 import REPO, progress, qualcomm
+from devices.phoenix.tooling import HEADSET, assets, cycle, device, devloop, localconfig, prefetch
+from overpressure.api.v1 import REPO, avb, bootimg, progress, qualcomm
 from overpressure.api.v1.localconfig import parse
 
 if TYPE_CHECKING:
@@ -44,6 +46,102 @@ class FakeClock:
 
     def sleep(self, seconds: float) -> None:
         self.now += seconds
+
+
+CONTACT_END = "} 2>/dev/null; "
+
+
+def task_command(remote: str) -> list[str]:
+    """Unwrap the host-contact update and read a task broker's argv."""
+    command = remote.partition(CONTACT_END)[2]
+    return shlex.split(command) if command.startswith(f"sh {devloop.TASK_HELPER} ") else []
+
+
+class FakeTaskInput(io.StringIO):
+    def __init__(self, holder: FakeTaskHolder):
+        super().__init__()
+        self.holder = holder
+
+    def close(self) -> None:
+        if not self.closed:
+            self.holder.drop()
+        super().close()
+
+
+class FakeTaskHolder:
+    """Fake the SSH transport and lock ownership, leaving the host workflow intact."""
+
+    def __init__(self, test: unittest.TestCase, argv: list[str], ack: str | None):
+        self.test = test
+        self.argv = argv
+        words = task_command(argv[-1])
+        test.assertEqual(words[:3], ["sh", devloop.TASK_HELPER, "hold"])
+        test.assertEqual(len(words), 5)
+        self.token, self.kind = words[3:]
+        test.assertRegex(self.token, r"^[0-9a-f]{32}$")
+        test.assertIn(self.kind, ("host", "headset", "restore"))
+        self.stdout = io.StringIO(ack if ack is not None else f"locked {self.token}\n")
+        self.stdin = FakeTaskInput(self)
+        self.returncode: int | None = None
+        self.status = ""
+        self.executing = False
+        self.pending_drop = False
+        self.events: list[tuple] = [("hold", self.kind)]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.stdin.close()
+        self.stdout.close()
+        self.wait()
+
+    def drop(self) -> None:
+        if self.executing:
+            # The native child still holds the lock after the SSH input closes.
+            self.pending_drop = True
+        elif self.returncode is None:
+            self.events.append(("drop",))
+            self.status = self.status or "error"
+            self.returncode = 255 if self.status == "error" else 0
+
+    def kill(self) -> None:
+        self.events.append(("kill",))
+        self.drop()
+
+    def wait(self, timeout: float | None = None) -> int:
+        if self.returncode is not None:
+            return self.returncode
+        assert timeout is not None, "the host waited indefinitely for an open workflow holder"
+        raise subprocess.TimeoutExpired(self.argv, timeout)
+
+    def command(self, words: list[str]) -> str:
+        if self.returncode is not None:
+            msg = "workflow holder connection lost"
+            raise RuntimeError(msg)
+        action, token, *args = words[2:]
+        if token != self.token:
+            msg = "workflow token does not own the lock"
+            raise RuntimeError(msg)
+        self.test.assertFalse(self.status, "command after a terminal workflow result")
+        if action == "run":
+            self.test.assertTrue(args)
+            self.events.append(("run", *args))
+            return shlex.join(["pico4-install", *args])
+        if action == "stage":
+            self.test.assertEqual(len(args), 3)
+            self.events.append(("stage", int(args[0]), *args[1:]))
+        elif action == "phase":
+            self.test.assertEqual(len(args), 2)
+            self.events.append(("phase", *args))
+        elif action == "finish":
+            self.test.assertEqual(len(args), 2)
+            self.test.assertIn(args[0], ("done", "error", "waiting"))
+            self.status = args[0]
+            self.events.append(("finish", *args))
+        else:
+            self.test.fail("unexpected workflow command: " + action)
+        return ""
 
 
 class SettingsTests(unittest.TestCase):
@@ -155,10 +253,12 @@ class HeadsetFixture(unittest.TestCase):
         stdin: int | IO[bytes] | None = None,
         check: bool = True,  # noqa: ARG002  # process.run's keyword
         log: Path | None = None,
+        record: bool = True,
     ) -> str:
         drain(stdin)  # a writer feeding the child waits for it to read
         words = [str(a) for a in argv]
-        self.calls.append(words)
+        if record:
+            self.calls.append(words)
         text = " ".join(words)
         output = ""
         if "reboot edl" in text:
@@ -542,6 +642,38 @@ class CycleTests(HeadsetFixture):
 
 
 class DevTests(HeadsetFixture):
+    def setUp(self):
+        super().setUp()
+        self.holders: list[FakeTaskHolder] = []
+        self.holder_ack: str | None = None
+
+    def task_process(self, argv: Sequence[object], **kwargs: object) -> FakeTaskHolder:
+        self.assertEqual(
+            kwargs,
+            {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT, "text": True},
+        )
+        self.assertTrue(all(h.returncode is not None for h in self.holders), "overlapping workflow holders")
+        words = [str(a) for a in argv]
+        holder = FakeTaskHolder(self, words, self.holder_ack)
+        self.calls.append(words)
+        self.holders.append(holder)
+        return holder
+
+    def texts(self):
+        # Keep the raw broker argv in calls; existing command assertions use the native view.
+        texts = []
+        for argv in self.calls:
+            words = task_command(argv[-1])
+            if words[2:3] == ["run"]:
+                contact = argv[-1].partition(CONTACT_END)[0] + CONTACT_END
+                texts.append(" ".join([*argv[:-1], contact + shlex.join(["pico4-install", *words[4:]])]))
+            else:
+                texts.append(" ".join(argv))
+        return texts
+
+    def task_stages(self) -> list[tuple]:
+        return [event[:3] for event in self.holders[-1].events if event[0] == "stage"]
+
     def make(self, responses: dict[str, str | Callable[[], str]] | None = None) -> devloop.Dev:
         responses = responses or {}
 
@@ -549,19 +681,141 @@ class DevTests(HeadsetFixture):
             argv: Sequence[object],
             timeout: float = 60,
             *,
-            stdin: IO[bytes] | None = None,
+            stdin: int | IO[bytes] | None = None,
             check: bool = True,
             log: Path | None = None,
         ) -> str:
-            text = " ".join(str(a) for a in argv)
-            for marker, reply in responses.items():
-                if marker in text:
+            words = [str(a) for a in argv]
+            command = task_command(words[-1])
+            holder = None
+            if command:
+                self.calls.append(words)
+                self.assertTrue(self.holders, "workflow command without a holder")
+                holder = self.holders[-1]
+                native = holder.command(command)
+                if not native:
                     drain(stdin)
-                    self.calls.append([str(a) for a in argv])
-                    return reply if isinstance(reply, str) else reply()
-            return self.fake(argv, timeout, stdin=stdin, check=check, log=log)
+                    return ""
+                words = [*words[:-1], native]
+                holder.executing = True
+            elif self.holders and self.holders[-1].returncode is None:
+                self.assertFalse(
+                    words[-1].partition(CONTACT_END)[2].startswith("pico4-install "),
+                    "native command bypassed the workflow holder",
+                )
+            try:
+                text = " ".join(words)
+                for marker, reply in responses.items():
+                    if marker in text:
+                        drain(stdin)
+                        if holder is None:
+                            self.calls.append(words)
+                        return reply if isinstance(reply, str) else reply()
+                return self.fake(words, timeout, stdin=stdin, check=check, log=log, record=holder is None)
+            finally:
+                if holder is not None:
+                    holder.executing = False
+                    if holder.pending_drop:
+                        holder.drop()
 
-        return devloop.Dev(self.settings, self.root / "dev", fake, self.clock, out=self.root / "out")
+        return devloop.Dev(
+            self.settings,
+            self.root / "dev",
+            fake,
+            self.clock,
+            out=self.root / "out",
+            task_process=cast("Callable[..., subprocess.Popen[str]]", self.task_process),
+        )
+
+    def test_workflow_holder_lives_across_commands_and_host_side_gaps(self):
+        dev = self.make({"pico4-install keys": "keys 1"})
+        with dev.task_workflow("host"):
+            holder = self.holders[-1]
+            dev.task_stage(0, "done", "inputs checked")
+            self.clock.sleep(120)
+            self.assertIsNone(holder.returncode)
+            self.assertFalse(holder.stdin.closed)
+            self.assertEqual(dev.ssh("pico4-install keys --id 'two words'"), "keys 1")
+            with self.assertRaisesRegex(RuntimeError, "already active"), dev.task_workflow("restore"):
+                self.fail("nested workflow acquired a lock")
+            with self.assertRaisesRegex(RuntimeError, "token does not own"):
+                dev.ssh(shlex.join(["sh", devloop.TASK_HELPER, "stage", "0" * 32, "1", "done", "wrong token"]))
+            dev.task_stage(1, "done", "keys confirmed")
+            self.assertIsNone(holder.returncode)
+        self.assertEqual(len(self.holders), 1)
+        self.assertEqual([e[0] for e in holder.events], ["hold", "stage", "run", "stage", "finish", "drop"])
+        self.assertEqual(holder.events[-2], ("finish", "done", "Requested maintenance steps completed"))
+        self.assertTrue(holder.stdin.closed)
+        self.assertEqual(holder.returncode, 0)
+        self.assertTrue(dev.ssh_argv("pico4-install status")[-1].endswith("; pico4-install status"))
+        broker = task_command(self.calls[2][-1])
+        self.assertEqual(broker, ["sh", devloop.TASK_HELPER, "run", holder.token, "keys", "--id", "two words"])
+
+    def test_install_requires_the_holders_exact_acknowledgement(self):
+        for ack in ("locked " + "0" * 32 + "\n", "", "workflow lock is busy\n"):
+            with self.subTest(ack=ack):
+                self.holder_ack = ack
+                dev, system = self.install_setup()
+                with self.assertRaisesRegex(RuntimeError, "could not acquire.*workflow lock"):
+                    dev.install(system)
+                holder = self.holders[-1]
+                self.assertEqual(holder.events, [("hold", "host"), ("kill",), ("drop",)])
+                self.assertFalse((dev.work / devloop.INSTALLED).exists())
+                self.assertTrue(dev.ssh_argv("pico4-install status")[-1].endswith("; pico4-install status"))
+                self.assertTrue(holder.stdin.closed)
+
+    def test_holder_eof_during_a_write_retains_the_lock_until_the_child_returns(self):
+        def disconnect() -> str:
+            holder = self.holders[-1]
+            self.assertTrue(holder.executing)
+            holder.stdin.close()
+            self.assertIsNone(holder.returncode)
+            with self.assertRaises(subprocess.TimeoutExpired):
+                holder.wait(timeout=0)
+            return "written boot " + hashlib.sha256(b"install boot").hexdigest()
+
+        dev, system = self.install_setup(responses={"pico4-install write boot": disconnect})
+        with self.assertRaisesRegex(RuntimeError, "holder connection lost"):
+            dev.install(system)
+        holder = self.holders[-1]
+        self.assertEqual(holder.status, "error")
+        self.assertEqual(holder.returncode, 255)
+        self.assertNotIn(("stage", 1, "done"), self.task_stages())
+        self.assertFalse(any(e[0] == "finish" for e in holder.events))
+        self.assertFalse(any("pico4-install write super" in t for t in self.texts()))
+        self.assertTrue(dev.ssh_argv("pico4-install status")[-1].endswith("; pico4-install status"))
+
+    def test_unconfirmed_native_write_finishes_error_without_completing_the_stage(self):
+        dev, system = self.install_setup(responses={"pico4-install write boot": "written boot " + "0" * 64})
+        with self.assertRaisesRegex(RuntimeError, "did not confirm boot"):
+            dev.install(system)
+        holder = self.holders[-1]
+        self.assertEqual(
+            holder.events[-2:],
+            [("finish", "error", "Host workflow failed; see the original host and device logs"), ("drop",)],
+        )
+        self.assertNotIn(("stage", 1, "done"), self.task_stages())
+        self.assertFalse(any("pico4-install write super" in t for t in self.texts()))
+        self.assertTrue((dev.work / devloop.INSTALLED).exists())
+
+    def test_failed_post_handoff_boot_does_not_turn_waiting_into_success(self):
+        dev, system = self.install_setup()
+
+        def failed_boot() -> None:
+            msg = "installed boot was not verified"
+            raise RuntimeError(msg)
+
+        with (
+            patch.object(dev, "wait_installed", side_effect=failed_boot),
+            self.assertRaisesRegex(RuntimeError, "installed boot was not verified"),
+        ):
+            dev.install(system)
+        holder = self.holders[-1]
+        self.assertEqual([e[:2] for e in holder.events if e[0] == "finish"], [("finish", "waiting")])
+        self.assertEqual(holder.status, "waiting")
+        self.assertEqual(holder.events[-1], ("drop",))
+        self.assertTrue((dev.work / devloop.INSTALLED).exists())
+        self.assertTrue(dev.ssh_argv("pico4-install status")[-1].endswith("; pico4-install status"))
 
     def test_check_knows_the_boot_image_whose_kernel_runs(self):
         valve = {"kernel": "Linux version 7.2.0-pico4 (overpressure@pico4) # SMP PREEMPT", "boot": "direct"}
@@ -616,6 +870,65 @@ class DevTests(HeadsetFixture):
             record.write_text(json.dumps({"recovery_kernel": "valve"}))
             self.assertIsNone(dev.stage1_ncm())  # Windows 11's own driver; the initialization disturbs it
 
+    def test_stock_abl_unlock_spelling_preserves_locked_and_conflicting_refusals(self):
+        for state, allowed in (
+            ("(bootloader) DeviceUnlocked=true\r\n(bootloader) DeviceCriticalUnlocked=false\r\n", True),
+            ("(bootloader) DeviceUnlocked=false\n(bootloader) DeviceCriticalUnlocked=true\n", False),
+            ("(bootloader) DeviceCriticalUnlocked=true\n", False),
+            ("(bootloader) DeviceUnlocked=true\n(bootloader) Device unlocked: false\n", False),
+        ):
+            with self.subTest(state=state):
+                dev = self.make({"oem device-info": state})
+                image = dev.work / "dev-boot.img"
+                image.write_bytes(b"dev image")
+                if allowed:
+                    dev.check_boot_partition(image)
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "locked or its state is unknown"):
+                        dev.check_boot_partition(image)
+
+    def test_image_includes_own_gpu_firmware_and_records_its_hashes(self):
+        dev = self.make()
+        (self.root / "out").mkdir()
+        (self.root / "out/pico4-stage1-test.img").write_bytes(b"stage 1 source")
+        (dev.work / "id_ed25519").write_bytes(b"private key")
+        (dev.work / "id_ed25519.pub").write_bytes(b"ssh-ed25519 test\n")
+        kernel = self.root / "kernel"
+        kernel.mkdir()
+        (kernel / "Image.gz").write_bytes(b"kernel")
+        stock = bootimg.BootImage(2, 4096, b"stock kernel", b"", recovery_dtbo=b"stock dtbo").pack()
+        stock_path = self.root / "stock-recovery.img"
+        stock_path.write_bytes(stock)
+        graphics = dev.work / "assets/graphics-firmware-5.13.7"
+        graphics.mkdir(parents=True)
+        for name in (*assets.GPU_FIRMWARE, "venus.mdt"):
+            (graphics / name).write_bytes(name.encode())
+
+        def prepare(*_args: object, **_kwargs: object) -> dict:
+            (dev.work / "test-boot.img").write_bytes(bootimg.BootImage(2, 4096, b"stock kernel", b"").pack())
+            return {"boot_sha256": "test"}
+
+        with (
+            patch.object(devloop, "ROOT", self.root),
+            patch.object(devloop.hw, "prepare_image", prepare),
+            patch.object(dev, "stock_recovery", return_value=(stock_path, stock)),
+            patch.object(avb, "with_stock_vbmeta", side_effect=lambda _stock, image: image),
+            patch.object(assets, "from_backup", return_value=[graphics]) as extract,
+            patch.object(devloop.recovery_image, "build", return_value=b"GPU recovery") as build,
+        ):
+            dev.image()
+        extract.assert_called_once_with(Path(self.settings.backup), dev.work / "assets", ("graphics-firmware",))
+        build.assert_called_once_with(
+            kernel, stock_path, dev.work / "dev-recovery-stock-kernel.img", gpu_firmware=graphics
+        )
+        record = json.loads((dev.work / "dev-image.json").read_text())
+        self.assertEqual(
+            record["recovery_gpu_firmware"],
+            {name: hashlib.sha256(name.encode()).hexdigest() for name in assets.GPU_FIRMWARE},
+        )
+        self.assertEqual(record["recovery_sha256"], hashlib.sha256(b"GPU recovery").hexdigest())
+        self.assertFalse((dev.work / "dev-recovery-stock-kernel.img").exists())
+
     def test_recovery_gets_the_same_checks_and_is_started(self):
         backup = Path(self.settings.backup)
         (backup / "lun0").mkdir()
@@ -658,13 +971,28 @@ class DevTests(HeadsetFixture):
         self.assertTrue(any("pico4-install hash recovery " in t for t in self.texts()))
         self.assertFalse(any("pico4-install hash boot " in t for t in self.texts()))
 
-    def install_setup(
+    def test_sync_time_reports_success_only_when_recovery_confirms_it(self):
+        dev = self.make()
+        receipt = {"source": "host", "epoch_seconds": 1795543200, "offset_seconds": 28800}
+        out = io.StringIO()
+        with (
+            patch.object(devloop.recovery_time, "synchronize", side_effect=(None, receipt)),
+            contextlib.redirect_stdout(out),
+        ):
+            self.assertIsNone(dev.sync_time())
+            self.assertEqual(out.getvalue(), "")
+            self.assertIs(dev.sync_time(), receipt)
+        self.assertEqual(out.getvalue(), "Recovery synchronized with the host clock and current time zone offset\n")
+
+    def install_setup(  # noqa: PLR0913  # independent native inputs and injectable device replies
         self,
         cmdline: str = "console=x overpressure.part=recovery",
         data: str = "none",
         held: Sequence[str] | None = None,
         confirmed_boot: bytes = b"install boot",
         battery: str = "80\nDischarging\n",
+        *,
+        responses: dict[str, str | Callable[[], str]] | None = None,
     ) -> tuple[devloop.Dev, Path]:
         backup = Path(self.settings.backup)
         (backup / "lun0").mkdir(exist_ok=True)
@@ -696,14 +1024,14 @@ class DevTests(HeadsetFixture):
         patcher.start()
         self.addCleanup(patcher.stop)
         stock_sha = devloop.stockfiles.manifest_sha256(stock)
-        responses = {
+        hashes = {
             f"pico4-install hash {name} ": sha
             for name, sha in (("boot", boot_sha), ("super", system_sha))
             if name in (held or ())
         }
         dev = self.make(
             {
-                **responses,
+                **hashes,
                 f"cat {devloop.BATTERY}/capacity": battery,
                 "cat /etc/overpressure/test-run": "dev-loop\n1234567",
                 "cat /proc/cmdline": cmdline + " msm_drm.dsi_display0=qcom,mdss_dsi_sharp_ls026b3sa_90_video:",
@@ -717,6 +1045,7 @@ class DevTests(HeadsetFixture):
                 "pico4-install bootmode normal": "bootmode normal",
                 "cat /proc/1/comm /etc/overpressure/install-id": "systemd\ndev-loop\n1234567",
                 "rm -rf --one-file-system": "removed",
+                **(responses or {}),
             }
         )
         self.fastboot_listed = False  # stage 1 runs: the headset is not in fastboot
@@ -753,6 +1082,92 @@ class DevTests(HeadsetFixture):
         self.assertIn(f"--size {27804115 * 4096}", steps[3])
         # The keys and the install ID go to the data partition, never into an image.
         self.assertIn(f"pico4-install keys --size {27804115 * 4096} --id dev-loop", steps[4])
+        holder = self.holders[-1]
+        self.assertEqual(
+            [e for e in holder.events if e[0] == "stage"],
+            [
+                ("stage", 0, "done", "Inputs, Recovery, display and battery checks passed"),
+                ("stage", 1, "running", "Checking or writing boot; waiting for device readback"),
+                ("stage", 1, "done", "Device readback verified boot by SHA-256"),
+                ("stage", 2, "running", "Checking or writing super; waiting for device readback"),
+                ("stage", 2, "done", "Device readback verified super by SHA-256"),
+                ("stage", 3, "running", "Preparing or checking user data"),
+                ("stage", 3, "done", "pico4-data initialized or verified for reuse"),
+                ("stage", 4, "running", "Writing public keys and installation ID"),
+                ("stage", 4, "done", "Device verified the public keys and installation ID"),
+                ("stage", 5, "running", "Checking or writing backed-up system assets"),
+                ("stage", 5, "done", "Device verified the system asset manifest"),
+                ("stage", 6, "running", "Clearing the Recovery request and reading back misc"),
+                ("stage", 6, "waiting", "Readback confirms normal boot in misc"),
+            ],
+        )
+        for index, name in ((1, "boot"), (2, "super")):
+            running = next(i for i, e in enumerate(holder.events) if e[:3] == ("stage", index, "running"))
+            write = next(i for i, e in enumerate(holder.events) if e[:3] == ("run", "write", name))
+            done = next(i for i, e in enumerate(holder.events) if e[:3] == ("stage", index, "done"))
+            self.assertLess(running, write)
+            self.assertLess(write, done)
+        self.assertEqual(
+            holder.events[-2:],
+            [("finish", "waiting", "About to leave Recovery; the host still needs to verify the next boot"), ("drop",)],
+        )
+
+    def test_install_can_verify_writes_and_keep_the_recovery_boot_selection(self):
+        dev, system = self.install_setup()
+        with patch.object(dev, "wait_installed") as wait_installed:
+            dev.install(system, stay_in_recovery=True)
+        wait_installed.assert_not_called()
+        commands = self.texts()
+        status = [i for i, text in enumerate(commands) if "pico4-install status" in text]
+        writes = [i for i, text in enumerate(commands) if "pico4-install write " in text]
+        self.assertEqual(len(writes), 2)
+        self.assertLess(status[0], min(writes))
+        self.assertGreater(status[-1], max(writes))
+        self.assertFalse(
+            any("pico4-install bootmode " in text or "pico4-reboot" in text or "rm -rf" in text for text in commands)
+        )
+        self.assertIn(("stage", 6, "skipped"), self.task_stages())
+        self.assertEqual([e[:2] for e in self.holders[-1].events[-2:]], [("finish", "done"), ("drop",)])
+
+    def test_staying_in_recovery_refuses_to_write_if_misc_selects_normal(self):
+        dev, system = self.install_setup(responses={"pico4-install status": "bootmode: normal\ndata: none"})
+        with self.assertRaisesRegex(RuntimeError, "persistent boot-recovery selection"):
+            dev.install(system, stay_in_recovery=True)
+        self.assertFalse((dev.work / devloop.INSTALLED).exists())
+        self.assertFalse(
+            any("pico4-install write " in text or "pico4-install format-data" in text for text in self.texts())
+        )
+        self.assertEqual([e[:2] for e in self.holders[-1].events[-2:]], [("finish", "error"), ("drop",)])
+
+    def test_staying_in_recovery_fails_if_misc_changes_after_verified_writes(self):
+        readings = iter(("boot-recovery", "boot-recovery", "normal"))
+        dev, system = self.install_setup(
+            responses={"pico4-install status": lambda: f"bootmode: {next(readings)}\ndata: none"}
+        )
+        with self.assertRaisesRegex(RuntimeError, "persistent boot-recovery selection"):
+            dev.install(system, stay_in_recovery=True)
+        stages = self.task_stages()
+        self.assertIn(("stage", 1, "done"), stages)
+        self.assertIn(("stage", 2, "done"), stages)
+        self.assertNotIn(("stage", 6, "skipped"), stages)
+        self.assertFalse(any("pico4-install bootmode " in text or "pico4-reboot" in text for text in self.texts()))
+        self.assertEqual([e[:2] for e in self.holders[-1].events[-2:]], [("finish", "error"), ("drop",)])
+
+    def test_rewrite_images_writes_even_when_the_partitions_already_match(self):
+        dev, system = self.install_setup(held=("boot", "super"))
+        dev.install(system, stay_in_recovery=True)
+        self.assertFalse(any("pico4-install write " in text for text in self.texts()))
+
+        self.calls.clear()
+        dev.install(system, stay_in_recovery=True, rewrite_images=True)
+        commands = self.texts()
+        self.assertTrue(any("pico4-install write boot" in text for text in commands))
+        self.assertTrue(any("pico4-install write super" in text for text in commands))
+        self.assertFalse(
+            any("pico4-install hash boot" in text or "pico4-install hash super" in text for text in commands)
+        )
+        self.assertIn(("stage", 1, "done"), self.task_stages())
+        self.assertIn(("stage", 2, "done"), self.task_stages())
 
     def test_install_reports_its_progress_the_writes_first(self):
         dev, system = self.install_setup()
@@ -803,25 +1218,30 @@ class DevTests(HeadsetFixture):
             dev.remove_build()
 
     def test_install_refuses_keys_the_headset_did_not_confirm(self):
-        dev, system = self.install_setup()
-        real = dev.ssh
-        dev.ssh = lambda command, *a, **k: "keys 0" if "pico4-install keys" in command else real(command, *a, **k)
+        dev, system = self.install_setup(responses={"pico4-install keys": "keys 0"})
         with self.assertRaisesRegex(RuntimeError, "did not confirm the keys"):
             dev.install(system)
         self.assertFalse(any("bootmode normal" in t for t in self.texts()))
+        self.assertIn(("stage", 4, "running"), self.task_stages())
+        self.assertNotIn(("stage", 4, "done"), self.task_stages())
+        self.assertEqual([e[:2] for e in self.holders[-1].events[-2:]], [("finish", "error"), ("drop",)])
 
     def test_install_refuses_another_panel_before_any_write(self):
-        dev, system = self.install_setup()
-        reads = {
-            "cat /proc/cmdline": "console=x msm_drm.dsi_display0=qcom,mdss_dsi_innolux_nt57900_90_video:",
-            "cat /proc/1/comm": "overpressure-init",  # which system runs: stage 1
-        }
-        dev.ssh = lambda command, *_, **__: (
-            reads[command] if command in reads else self.fail("wrote before reading the panel: " + command)
+        dev, system = self.install_setup(
+            responses={
+                "cat /proc/cmdline": "console=x msm_drm.dsi_display0=qcom,mdss_dsi_innolux_nt57900_90_video:",
+                "cat /proc/1/comm": "overpressure-init",
+            },
         )
-        _real_connect, dev.connect = dev.connect, lambda *, flashed=True: "recovery"  # noqa: ARG005  # the signature
-        with self.assertRaisesRegex(ValueError, "nt57900.*not verified"):
+        with (
+            patch.object(dev, "connect", return_value="recovery"),
+            self.assertRaisesRegex(ValueError, "nt57900.*not verified"),
+        ):
             dev.install(system)
+        holder = self.holders[-1]
+        self.assertFalse(any(e[0] == "run" for e in holder.events))
+        self.assertFalse((dev.work / devloop.INSTALLED).exists())
+        self.assertEqual([e[:2] for e in holder.events[-2:]], [("finish", "error"), ("drop",)])
 
     def test_a_repeated_install_on_the_running_system_goes_back_to_stage_1_first(self):
         # The last install got as far as starting the system; repeating it needs stage 1 again.
@@ -1287,6 +1707,7 @@ class DevTests(HeadsetFixture):
             patch.object(devloop, "source_date_epoch", lambda: 1700000000),
             patch.object(devloop, "source_commit", lambda: "abc123"),
             patch.object(devloop.Dev, "build_tree", lambda _self, target, *_, **__: target.write(b"tree")),
+            patch.object(prefetch, "manifest", return_value=[]),
         ):
             # From the installed system (its session stops), and from stage 1 (pico4-install build).
             installed = dev.build_on_headset(stage1=False)
@@ -1307,6 +1728,68 @@ class DevTests(HeadsetFixture):
             seen[-1].endswith(f"--bytes 4096 --sha256 {'d' * 64} --zstd --from-data {first['path']}"), seen[-1]
         )
 
+    def test_recovery_install_streams_prefetch_under_the_holder_then_writes_the_built_image(self):
+        cache = self.root / "cache"
+        download = f"{prefetch.PACKAGE_CACHE}/alsa-1:1.6-1-aarch64.pkg.tar.zst"
+        local = cache / prefetch.local(download)
+        local.parent.mkdir(parents=True)
+        local.write_bytes(b"cached package")
+        (cache / prefetch.MANIFEST).write_text(f"{download}\n", encoding="utf-8")
+        record = {"bytes": 4096, "sha256": "d" * 64, "prefix_bytes": 1024, "prefix_sha256": "e" * 64}
+        dev, system = self.install_setup(
+            data="pico4-data",
+            responses={
+                "out/pico4-system.img.json": json.dumps(record),
+                "out/pico4-userspace.manifest.json": '{"archive": {"sha256": "f"}}',
+                "pico4-install write super": "written super " + record["sha256"],
+            },
+        )
+
+        def run_streamed(argv: list, *_: object, stdin: IO[bytes], **__: object) -> str:
+            holder = self.holders[-1]
+            self.assertIsNone(holder.returncode)
+            self.assertFalse(holder.stdin.closed)
+            self.assertEqual(holder.kind, "headset")
+            broker = task_command(argv[-1])
+            self.assertEqual(broker[:5], ["sh", devloop.TASK_HELPER, "run", holder.token, "build"])
+            self.assertEqual(argv[argv.index("-R") + 1], f"127.0.0.1:{devloop.HEADSET_PROXY_PORT}")
+            self.assertEqual(holder.events[-1], ("phase", "source", "prefetch"))
+            holder.command(broker)
+            with tarfile.open(fileobj=stdin, mode="r|gz") as tar:
+                member = tar.next()
+                assert member is not None
+                self.assertEqual(member.name, f"prefetch/{download}")
+                cached = tar.extractfile(member)
+                assert cached is not None
+                self.assertEqual(cached.read(), b"cached package")
+                self.assertIsNone(tar.next())
+            return ""
+
+        with (
+            patch.object(devloop.process, "run_streamed", side_effect=run_streamed) as streamed,
+            patch.object(devloop, "ROOT", self.root),
+            patch.object(devloop, "BUILD_TREE", ()),
+            patch.object(devloop, "unreachable", return_value=[]),
+            patch.object(devloop, "source_date_epoch", return_value=1700000000),
+            patch.object(devloop, "source_commit", return_value="abc123"),
+            patch.object(dev, "prefetched", partial(dev.prefetched, cache=cache)),
+            patch.object(dev, "tree_stream", partial(dev.tree_stream, cache=cache)),
+        ):
+            dev.install(system, on_headset=True, stay_in_recovery=True)
+        streamed.assert_called_once()
+        events = self.holders[-1].events
+        build = next(i for i, e in enumerate(events) if e[:2] == ("run", "build"))
+        record_done = events.index(("phase", "record", "done"))
+        super_write = next(i for i, e in enumerate(events) if e[:3] == ("run", "write", "super"))
+        self.assertLess(build, record_done)
+        self.assertLess(record_done, super_write)
+        self.assertEqual(events[super_write][-2:], ("--from-data", f"{devloop.HEADSET_BUILD}/out/pico4-system.img.zst"))
+        self.assertIn(("stage", 2, "running", "Building on the headset"), events)
+        self.assertIn(("stage", 2, "done", "Headset build returned an image record"), events)
+        self.assertIn(("stage", 8, "skipped"), self.task_stages())
+        self.assertEqual([e[:2] for e in events[-2:]], [("finish", "done"), ("drop",)])
+        self.assertFalse(any("pico4-reboot" in t or "rm -rf" in t for t in self.texts()))
+
     def test_a_headset_build_without_the_internet_stops_before_any_write(self):
         dev, system = self.install_setup()
         with (
@@ -1315,6 +1798,7 @@ class DevTests(HeadsetFixture):
         ):
             dev.install(system, on_headset=True)
         self.assertFalse([t for t in self.texts() if "pico4-install" in t or "reboot" in t])
+        self.assertFalse(self.holders)
 
     def test_install_refuses_an_empty_battery_before_any_write(self):
         dev, system = self.install_setup(battery="7\nDischarging\n")
@@ -1322,6 +1806,29 @@ class DevTests(HeadsetFixture):
             dev.install(system)
         self.assertFalse(any("pico4-install write" in t for t in self.texts()))
         self.assertFalse((dev.work / devloop.INSTALLED).exists())
+        self.assertEqual(
+            [e[:2] for e in self.holders[-1].events],
+            [("hold", "host"), ("finish", "error"), ("drop",)],
+        )
+
+    def test_install_battery_check_honors_charge_and_the_write_threshold(self):
+        for reading, refused in (
+            ("80\nDischarging\n", False),
+            ("20\nDischarging\n", False),
+            ("19\nDischarging\n", True),
+            ("5\nNot charging\n", True),
+            ("5\nCharging\n", False),
+            ("5\n", True),
+            ("", False),  # not readable: a warning, not a refusal
+            ("cat: no such file\n", False),
+        ):
+            with self.subTest(reading=reading):
+                dev = self.make({f"cat {devloop.BATTERY}/capacity": reading})
+                if refused:
+                    with self.assertRaisesRegex(RuntimeError, f"at {reading.split()[0]} %"):
+                        dev.check_battery()
+                else:
+                    dev.check_battery()
 
     def test_install_keeps_existing_data(self):
         dev, system = self.install_setup(data="pico4-data")
@@ -1376,7 +1883,7 @@ class DevTests(HeadsetFixture):
         dev.restore()
         # From wherever the headset was, a fresh maintenance boot before the first write.
         reboot = self.calls.index(["fastboot", "-s", "FB1", "reboot", "recovery"])
-        first_write = next(i for i, c in enumerate(self.calls) if "pico4-install write super" in " ".join(c))
+        first_write = next(i for i, t in enumerate(self.texts()) if "pico4-install write super" in t)
         self.assertLess(reboot, first_write)
         steps = [
             t.split("; ")[-1].split(" --")[0]
@@ -1396,6 +1903,19 @@ class DevTests(HeadsetFixture):
         self.assertTrue(steps[5].endswith(" flash recovery " + str(self.root / "dev/restore-recovery.simg")))
         self.assertIn(f"--size {4096 * 4096}", next(t for t in self.texts() if "wipe metadata" in t))
         self.assertFalse((self.root / "dev/installed.json").exists())
+        events = self.holders[-1].events
+        self.assertIn(("stage", 1, "running", "Restoring super; waiting for device readback"), events)
+        self.assertIn(("stage", 1, "done", "Device readback verified super"), events)
+        self.assertIn(("stage", 3, "done", "Device readback verified the existing zeroed range of userdata"), events)
+        self.assertEqual(
+            self.task_stages(),
+            [
+                ("stage", 0, "done"),
+                *[("stage", i, state) for i in range(1, 6) for state in ("running", "done")],
+                ("stage", 6, "waiting"),
+            ],
+        )
+        self.assertEqual([e[:2] for e in self.holders[-1].events[-2:]], [("finish", "waiting"), ("drop",)])
         # One part (the installer's tasks): from the running maintenance system as it is, no fresh boot.
         self.calls.clear()
         dev.restore(only="data")
@@ -1404,6 +1924,17 @@ class DevTests(HeadsetFixture):
         self.assertEqual(
             writes, ["pico4-install wipe userdata", "pico4-install wipe metadata", "pico4-install bootmode normal"]
         )
+        self.assertEqual(
+            self.task_stages(),
+            [
+                ("stage", 0, "done"),
+                ("stage", 1, "skipped"),
+                ("stage", 2, "skipped"),
+                *[("stage", i, state) for i in range(3, 6) for state in ("running", "done")],
+                ("stage", 6, "skipped"),
+            ],
+        )
+        self.assertEqual([e[:2] for e in self.holders[-1].events[-2:]], [("finish", "done"), ("drop",)])
 
     def test_connect_verifies_the_flashed_dev_image(self):
         dev = self.make({"cat /etc/overpressure/test-run": "dev-loop\n1234567", "pico4-install hash": "f" * 64})

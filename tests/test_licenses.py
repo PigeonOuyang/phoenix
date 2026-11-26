@@ -16,6 +16,7 @@ LICENSES = {
     "": {"Unlicense"},
     "src/splash/": {"BSL-1.0"},
     "src/splash/pico4-splash-font.h": {"OFL-1.1"},  # Inter's outlines (src/splash/OFL.txt)
+    "src/recovery-ui/material_paths.hpp": {"Apache-2.0"},  # Google's Material Symbols outlines, not project code.
 }
 
 SOURCE_SUFFIXES = {".c", ".cpp", ".dts", ".frag", ".h", ".hpp", ".ps1", ".py", ".sh", ".vert"}
